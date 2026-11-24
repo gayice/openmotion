@@ -289,6 +289,7 @@ export function clearClientCompositionCaptureCacheForTest(): void {
   progressiveListeners.clear();
   clearRemoteCompositionFilmstripStateForTest();
   clearSharedPreviewGrantsForTest();
+  thumbnailScheduler.setOpeningGateActive(usePlayerStore.getState().editorInputLocked);
 }
 
 function normalizeCompositionPathForGate(raw: string): string {
@@ -2622,6 +2623,21 @@ async function runClientCompositionCapture(
   }
 }
 
+/** Keep ThumbnailScheduler's opening-gate hold synced with `editorInputLocked` so deferred captures never occupy slots. */
+function syncOpeningGateHold(): void {
+  thumbnailScheduler.setOpeningGateActive(usePlayerStore.getState().editorInputLocked);
+}
+syncOpeningGateHold();
+const unbindOpeningGateHold = usePlayerStore.subscribe((state) => {
+  thumbnailScheduler.setOpeningGateActive(state.editorInputLocked);
+});
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    unbindOpeningGateHold();
+    thumbnailScheduler.setOpeningGateActive(false);
+  });
+}
+
 /** Build a scheduler-managed request that captures real composition frames in the browser. */
 export function createClientCompositionCaptureRequest(input: ClientCaptureInput): ThumbnailRequest {
   const { rev: compRev, hasFileVersion } = resolveCompositionRevision(input.projectId, input.previewUrl);
@@ -2642,6 +2658,7 @@ export function createClientCompositionCaptureRequest(input: ClientCaptureInput)
     concurrencyBucket: "client-capture",
     priority: input.priority ?? "visible",
     rich: input.rich ?? true,
+    gatePriority: Boolean(input.gatePriority),
     compositionPath: normalizeCompositionPathForGate(input.previewUrl),
     contentRevision: hasFileVersion ? 0 : input.contentRevision,
     compositionRevision: compRev,

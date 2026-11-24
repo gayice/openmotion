@@ -34,6 +34,8 @@ export interface ThumbnailRequest {
   priority: ThumbnailPriority;
   /** Rich work is paused while the timeline is fast-scrolling. */
   rich?: boolean;
+  /** True when this capture participates in the initial opening gate and may run while `openingGateActive` is true. */
+  gatePriority?: boolean;
   /** For work whose result nobody reads: it is dropped, not cached, once its last lease ends. */
   discardWhenReleased?: boolean;
   /** Normalized composition path when this request renders or captures a composition. */
@@ -139,6 +141,7 @@ export class ThumbnailScheduler {
   private scrolling = false;
   private previewReloading = false;
   private playbackActive = false;
+  private openingGateActive = false;
   private pageHidden = false;
   private cacheBytes = 0;
   private waveformCacheBytes = 0;
@@ -192,6 +195,9 @@ export class ThumbnailScheduler {
         preempted: false,
       };
       this.entries.set(scopedKey, entry);
+    } else if (request.gatePriority && !entry.request.gatePriority && entry.state === "queued") {
+      // Promote a queued non-gated capture when a gated timeline clip leases the same work.
+      entry.request = request;
     }
 
     const leaseId = this.nextLeaseId++;
@@ -265,6 +271,29 @@ export class ThumbnailScheduler {
     if (this.playbackActive === active) return;
     this.playbackActive = active;
     if (!active) this.pump();
+  }
+
+  /**
+   * Holds non-gated `client-capture` jobs out of scheduler slots while the initial opening gate
+   * is active, and preempts any already-running non-gated captures back to the queue so gated
+   * timeline clips always get immediate access to `client-capture` concurrency slots.
+   */
+  setOpeningGateActive(active: boolean): void {
+    if (this.openingGateActive === active) return;
+    this.openingGateActive = active;
+    if (!active) {
+      this.pump();
+      return;
+    }
+    for (const entry of this.entries.values()) {
+      if (
+        entry.state === "loading" &&
+        concurrencyBucket(entry.request) === "client-capture" &&
+        !entry.request.gatePriority
+      ) {
+        this.preempt(entry);
+      }
+    }
   }
 
   setPageHidden(hidden: boolean): void {
@@ -392,9 +421,16 @@ export class ThumbnailScheduler {
   }
 
   private isHeld(entry: ThumbnailEntry): boolean {
-    const { kind, rich } = entry.request;
+    const { kind, rich, gatePriority } = entry.request;
     if (this.scrolling && rich) return true;
     if (this.previewReloading && kind === "composition") return true;
+    if (
+      this.openingGateActive &&
+      concurrencyBucket(entry.request) === "client-capture" &&
+      !gatePriority
+    ) {
+      return true;
+    }
     return (
       this.playbackActive &&
       kind === "video" &&

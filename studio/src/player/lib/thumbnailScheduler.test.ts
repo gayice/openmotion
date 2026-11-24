@@ -695,6 +695,83 @@ describe("ThumbnailScheduler", () => {
     expect(load).toHaveBeenCalledTimes(2);
     lease.release();
   });
+
+  it("keeps non-gated client-capture jobs out of slots during the opening gate so gated work starts immediately", async () => {
+    const scheduler = new ThumbnailScheduler(
+      resolveTimelineViewportBudgets({ concurrentClientCompositionCaptures: 3 }),
+    );
+    const starts: string[] = [];
+    const makeCapture = (name: string, gatePriority: boolean) =>
+      request(
+        name,
+        async () => {
+          starts.push(name);
+          return result(name);
+        },
+        gatePriority ? "interaction" : "overscan",
+        { kind: "composition", concurrencyBucket: "client-capture", gatePriority },
+      );
+
+    scheduler.setOpeningGateActive(true);
+    const sidebarLeases = [0, 1, 2].map((idx) =>
+      scheduler.acquire(makeCapture(`sidebar-${idx}`, false), vi.fn()),
+    );
+    expect(starts).toEqual([]);
+    expect(scheduler.getDiagnostics()).toMatchObject({ queued: 3, active: 0 });
+
+    const gatedReq = makeCapture("timeline-gated", true);
+    const gatedLease = scheduler.acquire(gatedReq, vi.fn());
+    await vi.waitFor(() => expect(scheduler.getSnapshot(gatedReq).status).toBe("ready"));
+    expect(starts).toEqual(["timeline-gated"]);
+
+    scheduler.setOpeningGateActive(false);
+    await vi.waitFor(() =>
+      expect(starts).toEqual(["timeline-gated", "sidebar-0", "sidebar-1", "sidebar-2"]),
+    );
+    gatedLease.release();
+    for (const lease of sidebarLeases) lease.release();
+  });
+
+  it("preempts active non-gated client-capture jobs when the opening gate activates and resumes them after", async () => {
+    const scheduler = new ThumbnailScheduler(
+      resolveTimelineViewportBudgets({ concurrentClientCompositionCaptures: 1 }),
+    );
+    const signals: AbortSignal[] = [];
+    const nonGated = request(
+      "sidebar-early",
+      (signal) => {
+        signals.push(signal);
+        return new Promise<ThumbnailLoadedResult>((resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          if (signals.length > 1) resolve(result("sidebar-early"));
+        });
+      },
+      "overscan",
+      { kind: "composition", concurrencyBucket: "client-capture", gatePriority: false },
+    );
+    const gated = request("timeline-gated", async () => result("timeline-gated"), "interaction", {
+      kind: "composition",
+      concurrencyBucket: "client-capture",
+      gatePriority: true,
+    });
+
+    const nonGatedLease = scheduler.acquire(nonGated, vi.fn());
+    expect(scheduler.getSnapshot(nonGated).status).toBe("loading");
+
+    scheduler.setOpeningGateActive(true);
+    await flush();
+    expect(signals[0]?.aborted).toBe(true);
+    expect(scheduler.getSnapshot(nonGated).status).toBe("queued");
+
+    const gatedLease = scheduler.acquire(gated, vi.fn());
+    await vi.waitFor(() => expect(scheduler.getSnapshot(gated).status).toBe("ready"));
+
+    scheduler.setOpeningGateActive(false);
+    await vi.waitFor(() => expect(scheduler.getSnapshot(nonGated).status).toBe("ready"));
+    expect(signals).toHaveLength(2);
+    gatedLease.release();
+    nonGatedLease.release();
+  });
 });
 
 describe("createThumbnailKey", () => {
