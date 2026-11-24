@@ -23,11 +23,12 @@ export function syncPeerComposition(
   // The bridge checks the file versions, whole-film fingerprint and unchanged
   // scenes. An edit to another child can join the same scoped update.
   const current = () => frameRef.current === frame && !isPreviewChanging() &&
-    !isStudioEditSaving() && usePlayerStore.getState().timelineProjectId === projectId;
+    usePlayerStore.getState().timelineProjectId === projectId;
   return Promise.resolve(mounted).then(async handled => {
     if (handled) return true;
-    const applied = await Promise.all(paths.map(file => tryRefreshPeerScene(frame, file, versions[file]!, current)));
-    if (!applied.every(Boolean)) return false;
+    if (isStudioEditSaving()) return false;
+    const receipts = Object.fromEntries(paths.map(file => [file, versions[file]!]));
+    if (!await tryRefreshPeerScene(frame, receipts, current)) return false;
     announcePreviewScenesSwapped(frame);
     return true;
   });

@@ -68,7 +68,16 @@ export const PREVIEW_SCENE_UPDATE = `
       Object.keys(before).every(key => changed.has(key) || (Object.hasOwn(after, key) && before[key] === after[key]));
   }
 
-  async function refreshPeerScene(message) {
+  // One owner may update this document at a time, including while the runtime awaits captions.
+  let sceneTail = Promise.resolve();
+  const appliedSceneVersions = new Map();
+  function refreshPeerScene(message) {
+    const result = sceneTail.then(() => refreshSceneReceipts(message));
+    sceneTail = result.catch(() => false);
+    return result;
+  }
+
+  async function refreshSceneReceipts(message, previous) {
     const { expiresAt } = message;
     const receipts = message.fileVersions ?? { [message.path]: message.fileVersion };
     const paths = Object.keys(receipts);
@@ -82,36 +91,67 @@ export const PREVIEW_SCENE_UPDATE = `
       targets.push({ path, base, host, scene: host.getAttribute('data-hf-scene'), parked: host.hasAttribute('data-hf-parked-scene') });
     }
     const scenes = new Set(targets.map(target => target.scene));
-    if (scenes.size !== paths.length || scenes.has(null)) return false;
+    if (scenes.size !== paths.length || scenes.has(null) ||
+        targets.some(a => targets.some(b => a !== b && a.host.contains(b.host)))) return false;
     const current = () => targets.every(({path, host, parked, base}) => uniqueSceneHost(path) === host &&
       host.hasAttribute('data-hf-parked-scene') === parked && sourceVersions[path] === base) &&
       !drag && !pendingDrags.size && !inlineText && Date.now() < expiresAt;
     if (!current()) return false;
+    if (targets.every(({path,base}) => appliedSceneVersions.get(path) === base &&
+        sourceIdentity(base).fileVersion === receipts[path])) return true;
 
     const signal = AbortSignal.timeout(Math.min(5000, expiresAt - Date.now()));
     const url = new URL(location.href);
     url.searchParams.delete('sceneFile');
-    for (const path of paths) url.searchParams.append('sceneFile', path);
+    for (const path of paths) if (!previous?.files.has(path)) url.searchParams.append('sceneFile', path);
     const response = await fetch(url.href, { cache: 'no-cache', redirect: 'error', signal });
     if (!response.ok) return false;
-    const html = await response.text();
+    let html = await response.text();
     const next = new DOMParser().parseFromString(html, 'text/html');
     const bridges = next.querySelectorAll('script[data-openmotion-preview]');
     if (bridges.length !== 1) return false;
-    const incoming = JSON.parse(bridges[0].getAttribute('data-openmotion-preview'));
+    const config = bridges[0].getAttribute('data-openmotion-preview');
+    const incoming = JSON.parse(config);
     const versions = incoming?.sourceVersions;
     if (incoming?.projectId !== projectId || incoming.compositionPath !== compositionPath ||
         incoming.canRebindTiming !== settings.canRebindTiming || JSON.stringify(incoming.liveEdits) !== JSON.stringify(settings.liveEdits) ||
         JSON.stringify(incoming.htmlSources) !== JSON.stringify(settings.htmlSources) ||
-        !sameOtherEntries(sourceVersions, versions, new Set(paths)) ||
-        !paths.every(path => sourceIdentity(versions[path]).fileVersion === receipts[path])) return false;
+        !versions || !paths.every(path => sourceIdentity(versions[path]).fileVersion === receipts[path])) return false;
     const oldParts = sceneParts(document), newParts = sceneParts(next);
-    if (!oldParts || !newParts || oldParts.shared !== newParts.shared ||
-        !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes) || !current()) return false;
+    if (!oldParts || !newParts || oldParts.shared !== newParts.shared || !current()) return false;
+
+    // A nearby write may already be present in this signed snapshot, even before
+    // its separate SSE reaches the parent. Fetch the known independent scenes together once.
+    const related = Object.keys(versions).filter(path => !Object.hasOwn(receipts, path) && sourceVersions[path] !== versions[path]);
+    if (related.length) {
+      if (previous || paths.length + related.length > ${MAX_PREVIEW_SCENE_FILES}) return false;
+      const combined = {...receipts};
+      for (const path of related) {
+        const host = uniqueSceneHost(path);
+        if (!sourceVersions[path] || path === compositionPath || !host) return false;
+        combined[path] = sourceIdentity(versions[path]).fileVersion;
+      }
+      return refreshSceneReceipts({...message, fileVersions:combined}, {doc:next, files:new Set(paths), config, parts:newParts});
+    }
+    if (!sameOtherEntries(sourceVersions, versions, new Set(paths)) ||
+        !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes)) return false;
+
+    if (previous) {
+      // The sibling read must describe exactly the same compiled project. Reuse
+      // the original scene body, which can be large, rather than requesting it twice.
+      if (previous.config !== config || JSON.stringify(previous.parts) !== JSON.stringify(newParts)) return false;
+      for (const element of Array.from(next.body.children)) {
+        if (!element.hasAttribute('data-hf-scene-fonts')) previous.doc.body.append(previous.doc.importNode(element, true));
+      }
+      html = '<!doctype html>' + previous.doc.documentElement.outerHTML;
+    }
 
     const confirm = () => {
       if (targets.some(({path, base}) => sourceVersions[path] !== base)) return false;
-      for (const path of paths) confirmCanvasVersion(path, versions[path]);
+      for (const path of paths) {
+        confirmCanvasVersion(path, versions[path]);
+        appliedSceneVersions.set(path, versions[path]);
+      }
       return true;
     };
     const changed = targets.filter(({scene}) => newParts.scenes[scene] !== oldParts.scenes[scene]);

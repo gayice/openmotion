@@ -43,7 +43,7 @@ export function refreshSavedCanvasPreview(
     const known = confirmedSource(project, path);
     return frameRef.current === frame && frame.isConnected && (!known || known.version === version);
   };
-  void tryRefreshPeerScene(frame, path, version, current).catch(() => false).then(applied => {
+  void tryRefreshPeerScene(frame, { [path]: version }, current).catch(() => false).then(applied => {
     if (!current()) return;
     if (applied) announcePreviewScenesSwapped(frame);
     else reload(paths);

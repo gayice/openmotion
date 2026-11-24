@@ -43,12 +43,13 @@ function fixture() {
   const nextParts = parts('new intro');
   const templ = () => `<html><head><meta name="hf-scene-parts" content='${JSON.stringify(nextParts)}'></head><body><script data-openmotion-preview='${JSON.stringify(fresh)}'></script></body></html>`;
   const counts = { reads: 0, swaps: 0, confirms: 0 };
+  const live: Record<string, string> = { ...oldVersions };
   const request = { documentId: 'frame-1', path: file, fileVersion: version, expiresAt: Date.now() + 3000 };
   let duringRead = () => {};
   const requestedFiles: string[][] = [];
   const confirmed: Record<string, string> = {};
   const refresh = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_SCENE_UPDATE + '\nrefreshPeerScene;', {
-    settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: { ...oldVersions }, projectId: 'p',
+    settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: live, projectId: 'p',
     document, location: {href: 'https://preview.example/current?pt=test'}, URL, AbortSignal,
     drag: null, pendingDrags: new Map(), inlineText: null,
     DOMParser: class { parseFromString(html: string) { return parseHTMLContent(html); } },
@@ -60,8 +61,8 @@ function fixture() {
       duringRead();
       return new Response(templ());
     },
-    window: { __hfSwapScenes: async (html: string) => { assert.equal(html, templ()); counts.swaps++; } },
-    confirmCanvasVersion: (path: string, value: string) => { confirmed[path] = value; counts.confirms++; },
+    window: { __hfSwapScenes: async (html: string) => { assert.ok(html.includes('hf-scene-parts')); counts.swaps++; } },
+    confirmCanvasVersion: (path: string, value: string) => { confirmed[path] = value; live[path] = value; counts.confirms++; },
   });
   return { document, counts, request, fresh, nextParts, requestedFiles, confirmed,
     run: (fileVersions?: Record<string, string>) => refresh(fileVersions ? {...request, fileVersions} : request), onRead: (fn: () => void) => {duringRead = fn;} };
@@ -89,6 +90,33 @@ it('requires every changed scene to have a matching receipt before the one runti
     assert.deepEqual(f.counts, {reads: 1, swaps: valid ? 1 : 0, confirms: valid ? 2 : 0});
     assert.deepEqual(f.confirmed, valid ? {[file]: after, [other]: second} : {});
   }
+});
+
+it('catches up a second independent saved file before its SSE and skips its already-applied receipt', async () => {
+  const f = fixture();
+  const host = f.document.createElement('section');
+  host.setAttribute('data-composition-file', other);
+  host.setAttribute('data-hf-scene', 'outro');
+  f.document.body.append(host);
+  const newer = digest('next outro');
+  f.fresh.sourceVersions[other] = newer;
+  f.nextParts.scenes.outro = 'new outro';
+  assert.deepEqual(await Promise.all([f.run(), f.run({[other]: `"sha256:${newer}"`})]), [true, true]);
+  assert.deepEqual(f.requestedFiles, [[file], [other]]);
+  assert.deepEqual(f.counts, {reads: 2, swaps: 1, confirms: 2});
+});
+
+it('does not apply a partial or shifted snapshot if the sibling changes again while fetching the batch', async () => {
+  const f = fixture();
+  const host = f.document.createElement('section');
+  host.setAttribute('data-composition-file', other);
+  host.setAttribute('data-hf-scene', 'outro');
+  f.document.body.append(host);
+  f.fresh.sourceVersions[other] = digest('second outro');
+  f.nextParts.scenes.outro = 'changed';
+  f.onRead(() => { if (f.counts.reads === 2) f.fresh.sourceVersions[other] = digest('third outro'); });
+  assert.equal(await f.run(), false);
+  assert.deepEqual(f.counts, {reads: 2, swaps: 0, confirms: 0});
 });
 
 it('uses the runtime to update both a mounted scene and its next mount', async () => {
