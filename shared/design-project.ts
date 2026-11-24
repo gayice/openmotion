@@ -94,11 +94,13 @@ export type DesignVersion = {
   files: { path: string; sha256: string; size: number }[];
 };
 
-/** Element or region annotation on a rendered HTML page. Pixel boxes are page coordinates in the given viewport. */
+/** Annotation on a rendered HTML page. Pixel boxes are relative to the viewport at capture time. */
 export type DesignCommentAnchor = {
   filePath: string;
   viewport: { id: DesignViewportId; width: number; height: number };
+  scroll?: { x: number; y: number; containers?: { selector: string; x: number; y: number }[] };
   slideIndex?: number;
+  isolatedSlide?: boolean;
   element?: { selector: string; elementId?: string; tagName: string; label: string; text?: string; htmlHint?: string; box: { x: number; y: number; width: number; height: number } };
   region?: { x: number; y: number; width: number; height: number };
   annotation?: ReviewAnnotation;
@@ -138,6 +140,7 @@ export const designRoutes = {
   restore: (id: string, versionId: string) => `${DESIGN_API}/projects/${id}/versions/${versionId}/restore`, // POST {requestId, expectedRevision}
   comments: (id: string) => `${DESIGN_API}/projects/${id}/comments`, // GET · POST {requestId, text, anchor, expectedRevision}
   comment: (id: string, commentId: string) => `${DESIGN_API}/projects/${id}/comments/${commentId}`, // PATCH {status|text, expectedCommentRevision} · DELETE
+  commentPreview: (id: string, commentId: string) => `${DESIGN_API}/projects/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}/preview?view=viewport`, // GET viewport image for a saved annotation
   exportProject: (id: string) => `${DESIGN_API}/projects/${id}/export`, // POST {format, versionId?, filePath?} → binary download
   deploy: (id: string) => `${DESIGN_API}/projects/${id}/deploy`, // GET status · POST {filePath?, workspaceId?, deployMode?} · DELETE unpublish
   importProjects: `${DESIGN_API}/import`,                         // POST multipart file (zip) or JSON {sourcePath}

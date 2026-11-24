@@ -2053,6 +2053,7 @@ export function ConversationStream({
                   }
 
                   const annot = att.annotation;
+                  const previewUrl = resourceImagePreviewUrl(att);
                   const sourceLoc = annot?.element?.sourceFile
                     ? `${annot.element.sourceFile}${typeof annot.element.sourceLine === 'number' ? `:${annot.element.sourceLine}` : ''}`
                     : '';
@@ -2065,7 +2066,7 @@ export function ConversationStream({
                     >
                       <ResourceThumbImage
                         className="om-sa-attachment-thumb"
-                        src={resourceImagePreviewUrl(att)}
+                        src={previewUrl}
                         fallback={<RemixIcon name={resourceIcon(att)} size={13} />}
                       />
                       <span>{chipTitle}</span>
@@ -2089,8 +2090,8 @@ export function ConversationStream({
                         trigger={chipTrigger}
                       >
                         <div className="om-sa-annot-preview-body">
-                          {att.previewUrl && (
-                            <img className="om-sa-annot-preview-img" src={att.previewUrl} alt={chipTitle} />
+                          {previewUrl && (
+                            <img className="om-sa-annot-preview-img" src={previewUrl} alt={chipTitle} />
                           )}
                           <div className="om-sa-annot-preview-meta">
                             <strong>{chipTitle}</strong>

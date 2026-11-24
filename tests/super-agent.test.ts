@@ -469,6 +469,101 @@ test('local Claude runtime enforces on-request approvals for paid generation thr
   await service.close();
 }));
 
+test('Super Agent limits saved Design comment mutations to the current message attachments', () => fixture(async store => {
+  const { readFile } = await import('node:fs/promises');
+  const origin = 'http://127.0.0.1:4173';
+  const phase1 = new Phase1Service(store, pluginRoot, {
+    origin: () => origin,
+    nativeUrl: () => undefined,
+    openProject: async () => {},
+    mutation: async fn => fn(),
+    cancel: async () => ({ id: 'x', state: 'cancelled' } as any),
+  });
+  const design = designProjectsFor(store.directory);
+  const project = await design.create({ scenario: 'deck', title: 'Review scope', requestId: 'review-scope' });
+  const addComment = (text: string, requestId: string) => design.createComment(project.id, {
+    text, requestId, expectedRevision: project.revision,
+    anchor: {
+      filePath: project.entry,
+      viewport: { id: 'desktop', width: 800, height: 450 },
+      region: { x: 10, y: 20, width: 100, height: 50 },
+    },
+  });
+  const { comment: attached } = await addComment('Edit this heading', 'selected-comment');
+  const { comment: other } = await addComment('Keep this second comment open', 'other-comment');
+  const otherTarget = { projectId: project.id, commentId: other.id };
+  let turn = 0;
+  const service = new SuperAgentConversations(store, {
+    resolveAgent: async () => '/fake/claude',
+    runClaude: async ({ mcpConfigPath, prompt }) => {
+      const config = JSON.parse(await readFile(mcpConfigPath, 'utf8'));
+      const server = config.mcpServers.openmotion;
+      let id = 0;
+      const call = async (args: Record<string, unknown>) => {
+        const res = await fetch(server.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...server.headers },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: ++id, method: 'tools/call',
+            params: { name: 'openmotion_design_comments', arguments: args },
+          }),
+        });
+        const body = await res.json() as { result: { isError: boolean; content: { text: string }[] } };
+        return body.result;
+      };
+      if (++turn === 1) {
+        assert.match(prompt, /saved Design comments attached to the current message/);
+        assert.equal((await call({ action: 'list', projectId: project.id })).isError, false);
+        const denied = await call({ ...otherTarget, action: ' update ', status: 'resolved' });
+        assert.equal(denied.isError, true);
+        assert.match(denied.content[0].text, /attached to the current message/);
+        assert.equal((await call({ ...otherTarget, action: 'delete' })).isError, true);
+        const wrongProject = await call({
+          action: 'update', status: 'resolved',
+          projectId: '11111111-1111-4111-8111-111111111111',
+          commentId: attached.id,
+        });
+        assert.equal(wrongProject.isError, true);
+        assert.match(wrongProject.content[0].text, /attached to the current message/);
+        assert.equal((await call({
+          action: 'update', status: 'resolved', expectedCommentRevision: attached.commentRevision,
+          projectId: project.id.toUpperCase(), commentId: attached.id.toUpperCase(),
+        })).isError, false);
+      } else {
+        assert.doesNotMatch(prompt, /saved Design comments attached to the current message/);
+        assert.equal((await call({ ...otherTarget, action: 'update', status: 'resolved' })).isError, false);
+      }
+    },
+  });
+  try {
+    const chat = await service.create({ engine: 'claude' });
+    const runtime = { origin, phase1: () => phase1 };
+    await service.start(chat.id, {
+      requestId: 'review-scoped',
+      text: 'Apply the attached comment.',
+      attachments: [{
+        id: 'saved-design-comment',
+        kind: 'browser-annotation',
+        title: attached.text,
+        annotation: {
+          mode: 'design-comment', pageUrl: project.previewUrl, projectId: project.id, commentId: attached.id,
+        },
+      }],
+    }, runtime);
+    const scopedTurn = await service.waitForChat(chat.id);
+    assert.equal(scopedTurn.state, 'idle', scopedTurn.error);
+    const states = async () => (await design.listComments(project.id)).comments.map(({ id, status }) => [id, status]);
+    assert.deepEqual(await states(), [[attached.id, 'resolved'], [other.id, 'open']]);
+
+    await service.start(chat.id, { requestId: 'review-unbound', text: 'Resolve the remaining comment.' }, runtime);
+    const unboundTurn = await service.waitForChat(chat.id);
+    assert.equal(unboundTurn.state, 'idle', unboundTurn.error);
+    assert.deepEqual(await states(), [[attached.id, 'resolved'], [other.id, 'resolved']]);
+  } finally {
+    await service.close();
+  }
+}));
+
 test('deleting a conversation during an in-flight tool call prevents recreating the chat file', () => fixture(async store => {
   const { existsSync } = await import('node:fs');
   let releaseTool!: () => void;
