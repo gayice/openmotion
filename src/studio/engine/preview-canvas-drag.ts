@@ -93,7 +93,9 @@ export const PREVIEW_CANVAS_DRAG = `
     const properties = makeRelative ? ['left', 'top', 'position'] : ['left', 'top'];
     const width = parseFloat(style.width), height = parseFloat(style.height);
     if (corner) {
-      if (!(width > 0 && height > 0) || style.display === 'inline' || style.transform !== 'none') return null;
+      // Inline replaced media honor CSS width and height, unlike an inline text span.
+      if (!(width > 0 && height > 0) || (style.display === 'inline' && !element.matches('canvas,img,video')) ||
+          style.transform !== 'none') return null;
       properties.push('width','height');
     }
     const original = Object.fromEntries(properties.map(property => [property, {
