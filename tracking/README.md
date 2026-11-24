@@ -118,7 +118,9 @@ correctness incidents and recovery evidence use `incident_confirmed` and
 ## Identity, properties and privacy
 
 `account_sign_in_result` reports each finished OpenDesign connector attempt with
-`source_product=openmotion`, `source_detail=openmotion_editor_login`, and an
+`source_product=openmotion`, `source_detail=openmotion_editor_login` (or one of the `entitlementHookIds` on Web Cloud OIDC callbacks), and an
+
+`entitlement_refresh_result` reports Studio's automatic `account/summary?refresh=true` sync when the user returns to the window after opening an external Pricing/Upgrade/Black Friday flow (`outcome`: `success` | `failure`, optional `hook_id`, `entry_id`, and `plan_after`). Unavailable billing responses and placeholder plans (`cloud`/`unknown`) report `outcome=failure` without `plan_after`.
 `entry_id` / `entry_occurred_at` pair created when the editor starts sign-in.
 Attempts replaced within that sign-in retain the entry pair while their
 `attempt_id` changes. A new explicit sign-in creates a new entry pair. Success

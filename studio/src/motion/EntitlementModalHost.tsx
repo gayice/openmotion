@@ -36,12 +36,24 @@ export function EntitlementModalHost() {
           }));
         };
         try {
-          const summary = await gatewayRequest<{ plan?: string | null; billing?: { plan?: string | null } }>('account/summary?refresh=true');
+          const summary = await gatewayRequest<{
+            plan?: string | null;
+            billingUnavailable?: boolean;
+            billing?: { plan?: string | null; unavailable?: boolean } | null;
+          }>('account/summary?refresh=true');
           notifyProvidersChanged();
           window.dispatchEvent(new Event('motion:account-changed'));
+          const unavailable = Boolean(summary?.billing?.unavailable || summary?.billingUnavailable);
           const rawPlan = summary?.plan ?? summary?.billing?.plan;
-          const planAfter = typeof rawPlan === 'string' && rawPlan.trim() ? rawPlan.trim().toLowerCase().replace(/\s+/g, '_') : undefined;
-          reportRefresh('success', planAfter);
+          const normalized = typeof rawPlan === 'string' && rawPlan.trim()
+            ? rawPlan.trim().toLowerCase().replace(/\s+/g, '_')
+            : undefined;
+          const isPlaceholder = !normalized || normalized === 'cloud' || normalized === 'unknown';
+          if (unavailable || isPlaceholder) {
+            reportRefresh('failure');
+          } else {
+            reportRefresh('success', normalized);
+          }
         } catch {
           reportRefresh('failure');
         }
