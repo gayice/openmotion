@@ -1,4 +1,5 @@
 import { DESIGN_ANNOTATION_BRIDGE } from './design-annotation-bridge.ts';
+import { DESIGN_DECK_BRIDGE } from './design-deck-bridge.ts';
 
 const BRIDGE_TOKEN_RE = /^[a-zA-Z0-9_-]{8,64}$/;
 
@@ -13,7 +14,7 @@ export function buildPreviewBridgeScript(token: string, designAnnotations = fals
   if (window.__omPreviewBridgeInstalled) return;
   window.__omPreviewBridgeInstalled = true;
   var TOKEN = ${safeToken};
-${designAnnotations ? DESIGN_ANNOTATION_BRIDGE : ''}
+${designAnnotations ? DESIGN_ANNOTATION_BRIDGE + DESIGN_DECK_BRIDGE : ''}
   var pick = false;
   var consoleSent = 0;
   var MAX_CONSOLE = 200;

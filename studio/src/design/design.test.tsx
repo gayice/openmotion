@@ -2,10 +2,11 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { designRoutes, type DesignVersion } from '../../../shared/design-project';
+import { designRoutes, type DesignComment, type DesignVersion } from '../../../shared/design-project';
 import { I18nProvider } from '../i18n/I18n';
 import { NearScreenIntersectionObserver } from '../hooks/intersectionObserverTestUtils';
 import { readWorkspacePage, workspacePageHref } from '../motion/workspacePageRouting';
+import { resourceImagePreviewUrl } from '../super-agent/ResourcePickerDialog';
 import { CodeViewer } from './CodeViewer';
 import { DesignApiError, designClient } from './designClient';
 import { DesignProjectEditor, buildPresenterPopupHtml, overlayLocalPoint } from './DesignProjectEditor';
@@ -142,6 +143,20 @@ describe('DesignProjectEditor', () => {
 
   it('switches Preview/Code, lists comments and resolves an open annotation', async () => {
     let resolved = false;
+    const penComment: DesignComment = {
+      ...mockComment,
+      id: '44444444-4444-4444-8444-444444444444',
+      text: 'Adjust the marked title',
+      anchor: {
+        filePath: 'index.html',
+        viewport: { id: 'desktop', width: 640, height: 240 },
+        slideIndex: 0,
+        annotation: {
+          version: 1, coordinateSpace: 'normalized', width: 640, height: 180,
+          marks: [{ kind: 'pen', points: [{ x: 0.125, y: 0.2 }, { x: 0.375, y: 0.6 }] }],
+        },
+      },
+    };
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith(`/projects/${projectId}`) && (!init?.method || init.method === 'GET')) {
@@ -155,7 +170,7 @@ describe('DesignProjectEditor', () => {
         return Response.json({ comment: { ...mockComment, status: 'resolved', commentRevision: 2 } });
       }
       if (url.includes('/comments')) {
-        return Response.json({ comments: [mockComment], sourceRevision: revision });
+        return Response.json({ comments: [mockComment, penComment], sourceRevision: revision });
       }
       if (url.includes('/files/')) {
         return Response.json({ path: 'index.html', content: '<!doctype html><html><body><h1>Hello</h1></body></html>', revision, size: 56, nextOffset: null });
@@ -204,11 +219,236 @@ describe('DesignProjectEditor', () => {
     expect(commentCard.querySelector('.om-design-annotation-fallback')?.textContent).toBe('Preview unavailable');
     expect(commentCard.textContent).toContain('Start a free trial');
 
+    const penCard = Array.from(container.querySelectorAll('.om-design-comment-card'))
+      .find(card => card.textContent?.includes(penComment.text))!;
+    const penThumbnail = penCard.querySelector<HTMLImageElement>('.om-design-annotation-snapshot-image')!;
+    expect(penThumbnail.getAttribute('src')).toBe(designRoutes.commentPreview(projectId, penComment.id));
+    await act(async () => { penThumbnail.dispatchEvent(new Event('load')); });
+    const penOverlay = penCard.querySelector('.om-design-annotation-snapshot-overlay');
+    expect(penOverlay?.getAttribute('viewBox')).toBe('0 0 320 180');
+    expect(penOverlay?.querySelector('.om-review-annotation-ink path')?.getAttribute('d')).toBe('M 80 36 L 240 108');
+    await act(async () => { penThumbnail.dispatchEvent(new Event('error')); });
+    const penFallback = penCard.querySelector('.om-design-annotation-fallback');
+    expect(penFallback?.querySelector('.om-review-annotation-ink path')).toBeTruthy();
+    expect(penFallback?.textContent).toBe('Preview unavailable');
+
     const resolveBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Resolve');
     expect(resolveBtn).toBeTruthy();
     await act(async () => { resolveBtn!.click(); });
     expect(resolved).toBe(true);
     expect(DesignApiError).toBeDefined();
+  });
+
+  it('labels and opens deck comments on the slide shown in their saved preview', async () => {
+    const legacyComment: DesignComment = {
+      ...mockComment,
+      text: 'Legacy annotation on the second slide',
+      status: 'resolved',
+      anchor: {
+        filePath: mockProject.entry,
+        viewport: mockComment.anchor.viewport,
+        slideIndex: 0,
+        scroll: { x: 0, y: 362 },
+        region: { x: 365, y: 52, width: 222, height: 50 },
+      },
+    };
+    const isolatedComment: DesignComment = {
+      ...legacyComment,
+      id: '44444444-4444-4444-8444-444444444444',
+      text: 'New annotation on the third slide',
+      status: 'open',
+      anchor: { ...legacyComment.anchor, slideIndex: 2, isolatedSlide: true, scroll: { x: 0, y: 0 } },
+    };
+    const legacyPreview = designRoutes.commentPreview(projectId, legacyComment.id);
+    const metadataRequests: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (init?.method === 'HEAD') {
+        metadataRequests.push(String(input));
+        return new Response(null, { headers: { 'X-OpenMotion-Slide-Index': '1' } });
+      }
+      return Response.json({});
+    });
+    vi.spyOn(designClient, 'getProject').mockResolvedValue({ project: { ...mockProject, scenario: 'deck' } });
+    vi.spyOn(designClient, 'listComments').mockResolvedValue({ comments: [legacyComment, isolatedComment], sourceRevision: revision });
+    vi.spyOn(designClient, 'detectEditors').mockResolvedValue({ editors: [] });
+    vi.spyOn(designClient, 'readFile').mockResolvedValue({
+      path: mockProject.entry,
+      content: ['One', 'Two', 'Three'].map(title => `<section class="slide"><h1>${title}</h1></section>`).join(''),
+      revision,
+      size: 100,
+      nextOffset: null,
+    });
+
+    await act(async () => {
+      root.render(<I18nProvider><DesignProjectEditor projectId={projectId} onBack={() => {}} /></I18nProvider>);
+    });
+    const findButton = (selector: string, label: string) =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>(selector)).find(button => button.textContent?.trim().startsWith(label))!;
+    await act(async () => { findButton('[role="tablist"] button', 'Comments').click(); });
+    await act(async () => { findButton('.om-design-segmented button', 'All').click(); });
+
+    const [legacyCard, isolatedCard] = Array.from(container.querySelectorAll('.om-design-comment-card'));
+    const labelButton = (card: Element) => card.querySelector<HTMLButtonElement>('.om-design-comment-location button')!;
+    const thumbnail = (card: Element) => card.querySelector<HTMLImageElement>('.om-design-annotation-snapshot-image')!;
+    await act(async () => {
+      thumbnail(legacyCard!).dispatchEvent(new Event('load'));
+      thumbnail(isolatedCard!).dispatchEvent(new Event('load'));
+    });
+    expect(labelButton(legacyCard!).textContent).toBe('Slide 2');
+    expect(labelButton(isolatedCard!).textContent).toBe('Slide 3');
+    expect(metadataRequests).toEqual([legacyPreview]);
+
+    const frame = container.querySelector<HTMLIFrameElement>('.om-design-iframe')!;
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
+    await act(async () => { labelButton(legacyCard!).click(); });
+    expect(postMessage).toHaveBeenCalledWith({ type: 'od:slide', action: 'go', index: 1 }, '*');
+    await act(async () => { labelButton(isolatedCard!).click(); });
+    expect(postMessage).toHaveBeenCalledWith({ type: 'od:slide', action: 'go', index: 2 }, '*');
+    expect(metadataRequests).toEqual([legacyPreview]);
+  });
+
+  it('sends each saved comment with its own viewport image and the slide shown in that image', async () => {
+    const chatId = 'chat-1';
+    const selectedComment: DesignComment = {
+      ...mockComment,
+      id: '55555555-5555-4555-8555-555555555555',
+      text: 'Make the footer type more expressive',
+      anchor: {
+        filePath: 'index.html',
+        viewport: { id: 'desktop', width: 644, height: 240 },
+        slideIndex: 0,
+        region: { x: 365, y: 52, width: 222, height: 50 },
+      },
+    };
+    const firstPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGO4w8X1HwAEpgHwHjmzTAAAAABJRU5ErkJggg==';
+    const selectedPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGPg4rrzHwADAgHwdHaYEwAAAABJRU5ErkJggg==';
+    const firstPreview = designRoutes.commentPreview(projectId, mockComment.id);
+    const selectedPreview = designRoutes.commentPreview(projectId, selectedComment.id);
+    const previewRequests: string[] = [];
+    const uploadedImages: string[] = [];
+    const captureCurrentPage = vi.fn();
+    const onAttachToChat = vi.fn();
+    let selectedPreviewAvailable = true;
+
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    vi.stubGlobal('Image', class {
+      onload: (() => void) | null = null;
+      set src(_value: string) { this.onload?.(); }
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input), window.location.href);
+      const requestPath = url.pathname + url.search;
+      if (requestPath === firstPreview || requestPath === selectedPreview) {
+        previewRequests.push(requestPath);
+        const selected = requestPath === selectedPreview;
+        if (selected && !selectedPreviewAvailable) return new Response(null, { status: 404 });
+        const bytes = Uint8Array.from(atob(selected ? selectedPng : firstPng), character => character.charCodeAt(0));
+        return new Response(bytes, {
+          headers: { 'Content-Type': 'image/png', 'X-OpenMotion-Slide-Index': selected ? '1' : '3' },
+        });
+      }
+      if (url.pathname.endsWith(`/chats/${chatId}/annotations`) && init?.method === 'POST') {
+        uploadedImages.push(JSON.parse(String(init.body)).dataUrl);
+        return Response.json({
+          id: String(uploadedImages.length),
+          screenshotUrl: `/annotation-images/${uploadedImages.length}.png`,
+          screenshotPath: `/tmp/annotation-images/${uploadedImages.length}.png`,
+        });
+      }
+      if (url.pathname.endsWith('/preview-snapshot')) {
+        captureCurrentPage();
+        return Response.json({ dataUrl: `data:image/png;base64,${firstPng}` });
+      }
+      if (url.pathname.endsWith(`/projects/${projectId}`)) {
+        return Response.json({ project: { ...mockProject, scenario: 'deck', openComments: 2 } });
+      }
+      if (url.pathname.endsWith('/comments')) {
+        return Response.json({ comments: [mockComment, selectedComment], sourceRevision: revision });
+      }
+      if (url.pathname.includes('/files/')) {
+        return Response.json({
+          path: mockProject.entry,
+          content: '<section class="slide">Cover</section><section class="slide">Review</section>',
+          revision,
+          size: 82,
+          nextOffset: null,
+        });
+      }
+      return Response.json({});
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          <I18nProvider>
+            <DesignProjectEditor projectId={projectId} onBack={() => {}} embedded chatId={chatId} onAttachToChat={onAttachToChat} />
+          </I18nProvider>,
+        );
+      });
+      await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Toggle panel"]')!.click(); });
+      const commentsTab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tablist"] button'))
+        .find(button => button.textContent?.startsWith('Comments'))!;
+      await act(async () => { commentsTab.click(); });
+      const selectedCard = Array.from(container.querySelectorAll('.om-design-comment-card'))
+        .find(card => card.textContent?.includes(selectedComment.text))!;
+      const sendSelected = Array.from(selectedCard.querySelectorAll<HTMLButtonElement>('button'))
+        .find(button => button.textContent?.trim() === 'Send to Agent')!;
+      const sendAll = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+        .find(button => button.textContent?.trim() === 'Send all to Agent')!;
+
+      await act(async () => {
+        sendSelected.click();
+        await vi.waitFor(() => expect(onAttachToChat).toHaveBeenCalledTimes(1));
+      });
+      expect(previewRequests).toEqual([selectedPreview]);
+      expect(uploadedImages).toEqual([`data:image/png;base64,${selectedPng}`]);
+      expect(onAttachToChat).toHaveBeenLastCalledWith(expect.objectContaining({
+        title: selectedComment.text,
+        previewUrl: '/annotation-images/1.png',
+        annotation: expect.objectContaining({
+          commentId: selectedComment.id,
+          screenshotSource: 'saved-design-comment',
+          slideIndex: 1,
+        }),
+      }), true);
+      const [sentAttachment] = onAttachToChat.mock.calls[0]!;
+      expect(resourceImagePreviewUrl(sentAttachment)).toBe('/annotation-images/1.png');
+      expect(resourceImagePreviewUrl({
+        ...sentAttachment,
+        previewUrl: '/annotation-images/wrong-live-page.png',
+        annotation: { ...sentAttachment.annotation, screenshotSource: undefined },
+      })).toBe(selectedPreview);
+
+      await act(async () => {
+        sendAll.click();
+        await vi.waitFor(() => expect(onAttachToChat).toHaveBeenCalledTimes(3));
+      });
+      expect(previewRequests).toEqual([selectedPreview, firstPreview, selectedPreview]);
+      expect(uploadedImages.slice(1)).toEqual([`data:image/png;base64,${firstPng}`, `data:image/png;base64,${selectedPng}`]);
+      expect(onAttachToChat).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        previewUrl: '/annotation-images/2.png',
+        annotation: expect.objectContaining({ commentId: mockComment.id, slideIndex: 3 }),
+      }), false);
+      expect(onAttachToChat).toHaveBeenNthCalledWith(3, expect.objectContaining({
+        previewUrl: '/annotation-images/3.png',
+        annotation: expect.objectContaining({ commentId: selectedComment.id, slideIndex: 1 }),
+      }), true);
+
+      selectedPreviewAvailable = false;
+      await act(async () => {
+        sendSelected.click();
+        await vi.waitFor(() => expect(onAttachToChat).toHaveBeenCalledTimes(4));
+      });
+      const [unavailableAttachment] = onAttachToChat.mock.calls[3]!;
+      expect(unavailableAttachment.annotation.commentId).toBe(selectedComment.id);
+      expect(unavailableAttachment.previewUrl).toBeUndefined();
+      expect(unavailableAttachment.annotation.screenshotUrl).toBeUndefined();
+      expect(previewRequests).toEqual([selectedPreview, firstPreview, selectedPreview, selectedPreview]);
+      expect(uploadedImages).toHaveLength(3);
+      expect(captureCurrentPage).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('previews a historical version separately and makes it current without adding history', async () => {

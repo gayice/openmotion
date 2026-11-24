@@ -383,3 +383,141 @@ test('Chromium preview bridges keep tracked annotation boxes aligned as content 
     await new Promise<void>(resolve => site.close(() => resolve()));
   }
 });
+
+test('Chromium design preview bridges paginate stacked decks and preserve authored decks', { timeout: 60_000 }, async t => {
+  const token = 'omb_design_deck_fixture';
+  const stacked = '<style>.deck{display:grid;gap:24px;padding:24px}.slide{min-height:560px}</style>';
+  const authored = `<style>
+    .slide{display:none;width:270px;height:180px}
+    .slide.active{display:grid;place-items:center}
+  </style>`;
+  const authoredProtocol = `<script>
+    const slides = [...document.querySelectorAll('.slide')];
+    function report(active) {
+      window.parent.postMessage({type:'od:slide-state',active,count:slides.length,protocolVersion:1}, '*');
+    }
+    window.addEventListener('message', event => {
+      const message = event.data;
+      if (event.source !== window.parent || message?.type !== 'od:slide' || message.action !== 'go') return;
+      slides.forEach((slide, i) => slide.classList.toggle('active', i === message.index));
+      document.body.dataset.nativePage = String(message.index);
+      report(message.index);
+    });
+    window.parent.postMessage({type:'od:deck-ready',capabilities:['absolute-navigation','state-events']}, '*');
+    report(0);
+  </script>`;
+  const fixture = (native: boolean) => `<!doctype html><head>
+    ${native ? authored : stacked}
+  </head><body style="margin:0">
+    <main class="deck">
+      <section class="slide${native ? ' active' : ''}" id="cover">
+        <div class="slide-frame"><h2>Cover</h2></div>
+      </section>
+      <section class="slide" id="details"><h2>Details</h2></section>
+      <section class="slide" id="closing"><h2>Closing</h2></section>
+    </main>
+    ${native ? authoredProtocol : ''}
+  </body>`;
+
+  const site = createServer((req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    const url = new URL(req.url!, 'http://local');
+    res.end(url.pathname === '/preview'
+      ? injectPreviewBridgeHtml(fixture(url.searchParams.has('native')), token, true)
+      : '<!doctype html><body id="host"></body>');
+  });
+  await new Promise<void>(resolve => site.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(site.address() as { port: number }).port}`;
+  const browser = new WorkspaceBrowser(process.cwd());
+
+  try {
+    for (const source of ['raw', 'srcdoc']) {
+      for (const native of [false, true]) {
+        const name = `${source}-${native ? 'authored' : 'stacked'}`;
+        await t.test(name, async () => {
+          const { page } = await browser.open('session-design-deck', name, base, { width: 800, height: 600, dpr: 1 });
+          await page.waitForSelector('#host', { timeout: 5000 });
+          const preview = source === 'srcdoc' ? buildBridgeSrcDoc(fixture(native), `${base}/`, token, false) : null;
+          await page.evaluate(({ preview, native }) => new Promise<void>(resolve => {
+            const iframe = document.createElement('iframe');
+            iframe.setAttribute('sandbox', 'allow-scripts');
+            iframe.style.cssText = 'display:block;width:400px;height:300px;border:0';
+            iframe.addEventListener('load', () => resolve(), { once: true });
+            window.addEventListener('message', event => {
+              if (event.source === iframe.contentWindow && event.data?.type === 'od:slide-state') {
+                document.body.dataset.slideState = `${event.data.active}/${event.data.count}`;
+              }
+            });
+            if (preview) iframe.srcdoc = preview;
+            else iframe.src = '/preview' + (native ? '?native=1' : '');
+            document.body.appendChild(iframe);
+          }), { preview, native });
+          const frame = await (await page.waitForSelector('iframe', { timeout: 5000 }))!.contentFrame();
+          assert.ok(frame);
+
+          const post = (message: Record<string, unknown>) => page.evaluate(event => {
+            document.querySelector('iframe')!.contentWindow!.postMessage(event, '*');
+          }, message);
+          const mode = (enabled: boolean, sentToken = token) => post({
+            type: 'om:design-deck-mode', enabled, singlePage: true, token: sentToken,
+          });
+          const go = (index: number) => post({ type: 'od:slide', action: 'go', index });
+          const waitForState = (index: number) => page.waitForFunction(value =>
+            document.body.dataset.slideState === value, { timeout: 5000 }, `${index}/3`);
+          const visibleSlides = () => frame.$$eval('.slide', slides =>
+            slides.filter(slide => slide.getClientRects().length > 0).map(slide => slide.id));
+          const waitForOnly = (id: string) => frame.waitForFunction(expectedId => {
+            const visible = Array.from(document.querySelectorAll('.slide')).filter(slide => slide.getClientRects().length > 0);
+            return visible.length === 1 && visible[0].id === expectedId;
+          }, { timeout: 5000 }, id);
+
+          if (!native) {
+            await mode(false);
+            await mode(true, 'wrong_deck_token');
+            await go(1);
+            assert.deepEqual(await visibleSlides(), ['cover', 'details', 'closing']);
+          }
+
+          await mode(true);
+          await waitForOnly('cover');
+          await waitForState(0);
+
+          if (!native) {
+            await frame.evaluate(() => window.scrollTo(0, 100));
+            assert.equal(await frame.evaluate(() => window.scrollY), 100);
+          }
+          await go(1);
+          await waitForOnly('details');
+          await waitForState(1);
+
+          assert.equal(await frame.evaluate(() => window.scrollY), 0);
+
+          if (native) {
+            const nativePage = await frame.$eval('#details', slide => {
+              const { width, height } = slide.getBoundingClientRect();
+              return { display: getComputedStyle(slide).display, width, height, authored: document.body.dataset.nativePage };
+            });
+            assert.deepEqual(nativePage, { display: 'grid', width: 270, height: 180, authored: '1' });
+          }
+
+          await go(2);
+          await waitForOnly('closing');
+          await waitForState(2);
+          await go(1);
+          await waitForOnly('details');
+          await waitForState(1);
+
+          if (!native) {
+            await mode(false);
+            await frame.waitForFunction(() => Array.from(document.querySelectorAll('.slide'))
+              .every(slide => slide.getClientRects().length > 0), { timeout: 5000 });
+          }
+        });
+      }
+    }
+  } finally {
+    await browser.close();
+    site.closeAllConnections();
+    await new Promise<void>(resolve => site.close(() => resolve()));
+  }
+});

@@ -21,6 +21,7 @@ import { zip } from './scripts/zip.mjs';
 import { browserExecutable } from './browser.ts';
 import { validateReviewAnnotation } from './shared/review-comments.ts';
 import { injectPreviewBridgeHtml, isValidPreviewBridgeToken } from './shared/preview-bridge.ts';
+import { DESIGN_DECK_INACTIVE_ATTRIBUTE, DESIGN_DECK_ISOLATION_CSS, DESIGN_DECK_SLIDE_SELECTOR } from './shared/design-deck-bridge.ts';
 import { designCatalog } from './shared/design-catalog.ts';
 import { designDeployFor } from './gateway/design-deploy.ts';
 import {
@@ -126,6 +127,7 @@ type StoredProject = Omit<DesignProject, 'revision' | 'versionId' | 'versionLabe
 type ProjectCatalogFile = { schemaVersion: 1; projects: StoredProject[] };
 type VersionFile = { schemaVersion: 1; currentVersionId: string | null; versions: DesignVersion[] };
 type CommentFile = { schemaVersion: 1; comments: DesignComment[] };
+type CommentPreview = { image: Buffer; slideIndex?: number };
 type RequestReceipt = { inputHash: string; result: unknown };
 
 const sha256 = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
@@ -189,15 +191,25 @@ function computeRevision(files: { path: string; size: number; sha256: string }[]
 }
 
 function commentPreviewViewport(anchor: DesignCommentAnchor) {
-  const { viewport } = anchor;
-  const box = anchor.region ?? anchor.element?.box;
-  if (!box || ![box.x, box.y, box.width, box.height, viewport.width, viewport.height].every(Number.isFinite)) return null;
+  const viewport = anchor.annotation ?? anchor.viewport;
+  if (![viewport.width, viewport.height].every(Number.isFinite)) return null;
   const width = Math.round(viewport.width);
   const height = Math.round(viewport.height);
   if (width < 1 || height < 1 || width > 4096 || height > 4096) return null;
-  if (box.width <= 0 || box.height <= 0 || box.x >= width || box.y >= height
+  if (anchor.annotation) {
+    const start = anchor.annotation.marks[0]?.points[0];
+    const point = start && { x: Math.min(width - 1, start.x * width), y: Math.min(height - 1, start.y * height) };
+    return { width, height, point };
+  }
+  const box = anchor.region ?? anchor.element?.box;
+  if (!box || ![box.x, box.y, box.width, box.height].every(Number.isFinite)
+    || box.width <= 0 || box.height <= 0 || box.x >= width || box.y >= height
     || box.x + box.width <= 0 || box.y + box.height <= 0) return null;
-  return { width, height };
+  const point = {
+    x: (Math.max(0, box.x) + Math.min(width, box.x + box.width)) / 2,
+    y: (Math.max(0, box.y) + Math.min(height, box.y + box.height)) / 2,
+  };
+  return { width, height, point };
 }
 
 function deckCommentElement(anchor: DesignCommentAnchor) {
@@ -624,8 +636,8 @@ export class DesignProjects {
   private readonly requestsDir: string;
   private readonly catalogPath: string;
   private readonly lockPath: string;
-  private readonly commentPreviews = new Map<string, Buffer>();
-  private readonly pendingCommentPreviews = new Map<string, Promise<Buffer>>();
+  private readonly commentPreviews = new Map<string, CommentPreview>();
+  private readonly pendingCommentPreviews = new Map<string, Promise<CommentPreview>>();
   private commentPreviewQueue = Promise.resolve();
   private commentPreviewBrowser?: Promise<Browser>;
   private commentPreviewIdleTimer?: ReturnType<typeof setTimeout>;
@@ -1237,6 +1249,10 @@ export class DesignProjects {
       if (!anchor.viewport || !['desktop', 'tablet', 'mobile'].includes(anchor.viewport.id) || !(anchor.viewport.width > 0) || !(anchor.viewport.height > 0)) {
         throw new DesignError('INVALID_ARGUMENT', 'Valid viewport is required on anchor');
       }
+      if ((anchor.isolatedSlide !== undefined && typeof anchor.isolatedSlide !== 'boolean')
+        || (anchor.isolatedSlide && (!Number.isInteger(anchor.slideIndex) || anchor.slideIndex! < 0))) {
+        throw new DesignError('INVALID_ARGUMENT', 'A valid slide index is required for an isolated slide');
+      }
       if (anchor.scroll !== undefined) {
         if (!Number.isFinite(anchor.scroll?.x) || !Number.isFinite(anchor.scroll?.y)) {
           throw new DesignError('INVALID_ARGUMENT', 'Valid scroll coordinates are required on anchor');
@@ -1310,6 +1326,10 @@ export class DesignProjects {
   }
 
   async renderCommentPreview(id: string, commentId: string): Promise<Buffer> {
+    return (await this.renderCommentPreviewDetails(id, commentId)).image;
+  }
+
+  async renderCommentPreviewDetails(id: string, commentId: string): Promise<CommentPreview> {
     const pid = validateId(id);
     const { comments } = await this.readCommentFile(pid);
     const comment = comments.find(item => item.id === commentId);
@@ -1345,21 +1365,21 @@ export class DesignProjects {
       if (!files.has(comment.anchor.filePath)) throw new DesignError('NOT_FOUND', 'Comment preview file is unavailable');
 
       const target = deckCommentElement(comment.anchor);
-      let image = await this.captureCommentPreview(files, comment.anchor, viewport, target?.element);
-      if (!image && target) {
+      let preview = await this.captureCommentPreview(files, comment.anchor, viewport, target?.element);
+      if (!preview && target) {
         const candidate = await this.findCommentSnapshot(versions, comment, target.html);
         if (candidate) {
           const { files: savedFiles } = await this.snapshotMap(pid, candidate.id);
-          image = await this.captureCommentPreview(savedFiles, comment.anchor, viewport, target.element);
+          preview = await this.captureCommentPreview(savedFiles, comment.anchor, viewport, target.element);
         }
       }
-      if (!image) throw new DesignError('NOT_FOUND', 'Comment target is unavailable in the saved slide');
-      this.commentPreviews.set(key, image);
+      if (!preview) throw new DesignError('NOT_FOUND', 'Comment target is unavailable in the saved slide');
+      this.commentPreviews.set(key, preview);
       if (this.commentPreviews.size > MAX_COMMENT_PREVIEW_CACHE) {
         const oldest = this.commentPreviews.keys().next().value;
         if (oldest !== undefined) this.commentPreviews.delete(oldest);
       }
-      return image;
+      return preview;
     }).finally(() => {
       this.pendingCommentPreviews.delete(key);
       if (this.pendingCommentPreviews.size === 0 && this.commentPreviewBrowser) {
@@ -1401,9 +1421,9 @@ export class DesignProjects {
   private async captureCommentPreview(
     files: Map<string, Buffer>,
     anchor: DesignCommentAnchor,
-    { width, height }: NonNullable<ReturnType<typeof commentPreviewViewport>>,
+    { width, height, point }: NonNullable<ReturnType<typeof commentPreviewViewport>>,
     element?: NonNullable<DesignCommentAnchor['element']>,
-  ): Promise<Buffer | null> {
+  ): Promise<CommentPreview | null> {
     const launching = this.commentPreviewBrowser ??= this.launchHeadless('comment-preview');
     try {
       const browser = await launching;
@@ -1426,7 +1446,22 @@ export class DesignProjects {
           });
           const response = await page.goto(pageUrl, { waitUntil: 'load', timeout: 5000 });
           if (!response?.ok()) throw new DesignError('NOT_FOUND', 'Comment preview could not load');
-          if (Number.isInteger(anchor.slideIndex) && anchor.slideIndex! >= 0) {
+          if (anchor.isolatedSlide) {
+            const isolated = await page.evaluate(({ selector, attribute, css, index }) => {
+              const slides = Array.from(document.querySelectorAll(selector))
+                .filter(slide => !slide.parentElement?.closest(selector));
+              if (index === undefined || !slides[index]) return false;
+              const style = document.createElement('style');
+              style.textContent = css;
+              document.head.appendChild(style);
+              slides.forEach((slide, i) => slide.toggleAttribute(attribute, i !== index));
+              return true;
+            }, {
+              selector: DESIGN_DECK_SLIDE_SELECTOR, attribute: DESIGN_DECK_INACTIVE_ATTRIBUTE,
+              css: DESIGN_DECK_ISOLATION_CSS, index: anchor.slideIndex,
+            });
+            if (!isolated) return null;
+          } else if (Number.isInteger(anchor.slideIndex) && anchor.slideIndex! >= 0) {
             await showSnapshotSlide(page, anchor.slideIndex!);
           }
           const origin = anchor.scroll ? await page.evaluate(async ({ x, y, containers }) => {
@@ -1452,8 +1487,21 @@ export class DesignProjects {
                 && normalize((node as HTMLElement).innerText || node.textContent || '') === expected;
             }).length === 1;
           }, element)) return null;
+          let slideIndex = anchor.isolatedSlide ? anchor.slideIndex : undefined;
+          if (!anchor.isolatedSlide && Number.isInteger(anchor.slideIndex) && point) {
+            // Continuous deck previews could record a page counter that did not follow document scrolling.
+            slideIndex = await page.evaluate(({ x, y, selector }) => {
+              const target = document.elementFromPoint(x, y);
+              if (!target) return undefined;
+              const slides = Array.from(document.querySelectorAll(selector))
+                .filter(slide => !slide.parentElement?.closest(selector));
+              const index = slides.findIndex(slide => slide.contains(target));
+              return index >= 0 ? index : undefined;
+            }, { ...point, selector: DESIGN_DECK_SLIDE_SELECTOR });
+          }
           const scale = Math.min(1, MAX_COMMENT_PREVIEW_DIMENSION / Math.max(width, height));
-          return Buffer.from(await page.screenshot({ type: 'png', clip: { ...origin, width, height, scale } }));
+          const image = Buffer.from(await page.screenshot({ type: 'png', clip: { ...origin, width, height, scale } }));
+          return { image, slideIndex };
         } finally {
           await context.close().catch(() => {});
         }
@@ -2124,17 +2172,18 @@ export async function designHttp(
     }
 
     const commentPreview = /^projects\/([^/]+)\/comments\/([^/]+)\/preview$/.exec(sub);
-    if (commentPreview && req.method === 'GET') {
+    if (commentPreview && (req.method === 'GET' || req.method === 'HEAD')) {
       const [, id, commentId] = commentPreview;
-      const image = await service.renderCommentPreview(id, commentId);
+      const { image, slideIndex } = await service.renderCommentPreviewDetails(id, commentId);
       res.writeHead(200, {
         'Content-Type': 'image/png',
         'Content-Length': image.length,
+        ...(slideIndex !== undefined ? { 'X-OpenMotion-Slide-Index': String(slideIndex) } : {}),
         'Cache-Control': 'private, max-age=3600',
         'Cross-Origin-Resource-Policy': 'same-origin',
         'X-Content-Type-Options': 'nosniff',
       });
-      res.end(image);
+      res.end(req.method === 'HEAD' ? undefined : image);
       return true;
     }
 

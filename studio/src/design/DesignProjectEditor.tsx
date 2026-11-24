@@ -130,11 +130,12 @@ function escapeInlineJson(value: unknown) {
 }
 
 /** Build isolated Presenter popup HTML with sandboxed deck iframe and escaped title/notes. */
-export function buildPresenterPopupHtml(title: string, rawUrl: string, speakerNotes: string[], total: number): string {
+export function buildPresenterPopupHtml(title: string, rawUrl: string, speakerNotes: string[], total: number, bridgeToken?: string): string {
   const safeTotal = Math.max(1, Math.floor(total));
   const safeTitle = escapeHtml(title);
   const safeUrl = escapeHtml(rawUrl);
   const safeNotesJson = escapeInlineJson(speakerNotes);
+  const safeBridgeToken = escapeInlineJson(bridgeToken ?? null);
   return `<!doctype html><html><head><title>${safeTitle} — Presenter</title>
 <link rel="stylesheet" href="/design-system/ui.css" />
 <style>body{margin:0;background:var(--motion-bg);color:var(--motion-text);font-family:var(--motion-font-sans);display:grid;grid-template-columns:2fr 1fr;height:100vh}
@@ -146,7 +147,10 @@ iframe{width:100%;height:100%;border:0;background:var(--motion-canvas)}aside{dis
 <div class="row"><button onclick="go(cur-1)">Prev</button><button onclick="go(cur+1)">Next</button><button onclick="reset()">Reset timer</button></div>
 <div class="notes" id="notes"></div></aside>
 <script id="om-presenter-notes" type="application/json">${safeNotesJson}</script>
-<script>const notes=JSON.parse(document.getElementById('om-presenter-notes').textContent||'[]');let cur=0,sec=0;const f=document.getElementById('deck');
+<script>const notes=JSON.parse(document.getElementById('om-presenter-notes').textContent||'[]');let cur=0,sec=0;const f=document.getElementById('deck');const token=${safeBridgeToken};
+function configureDeck(){if(token)f.contentWindow.postMessage({type:'om:design-deck-mode',token,enabled:true,singlePage:true},'*');}
+f.addEventListener('load',configureDeck);
+window.addEventListener('message',e=>{if(e.source===f.contentWindow&&e.data?.type==='om:design-deck-ready'&&e.data.token===token)configureDeck();});
 function render(){document.getElementById('counter').textContent=(cur+1)+' / ${safeTotal}';document.getElementById('notes').textContent=notes[cur]||'No speaker notes for this slide.';}
 function go(i){cur=Math.max(0,Math.min(${safeTotal - 1},i));f.contentWindow.postMessage({type:'od:slide',action:'go',index:cur},'*');render();}
 function reset(){sec=0;}setInterval(()=>{sec++;document.getElementById('timer').textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');},1000);
@@ -173,15 +177,17 @@ function AnnotationVisualPreview({
   annotation,
   viewport,
   imageUrl,
+  onImageLoaded,
 }: {
   region?: DesignCommentAnchor['region'];
   annotation?: ReviewAnnotation;
   viewport?: { width: number; height: number };
   imageUrl?: string;
+  onImageLoaded?: () => void;
 }) {
   const { t } = useI18n();
   const [imageStatus, setImageStatus] = useState<'loading' | 'loaded' | 'unavailable'>('loading');
-  if (annotation) {
+  if (annotation && !imageUrl) {
     const b = annotationBounds(annotation);
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -197,23 +203,33 @@ function AnnotationVisualPreview({
       </div>
     );
   }
-  if (!region || !viewport) return null;
+  if (!viewport || (!region && !annotation)) return null;
 
-  const viewportWidth = Math.max(1, viewport.width);
-  const viewportHeight = Math.max(1, viewport.height);
-  const x = Math.max(0, region.x);
-  const y = Math.max(0, region.y);
-  const width = Math.max(0, Math.min(viewportWidth, region.x + region.width) - x);
-  const height = Math.max(0, Math.min(viewportHeight, region.y + region.height) - y);
-  const selection = <rect className="om-design-annotation-selection" x={x} y={y} width={width} height={height} vectorEffect="non-scaling-stroke" />;
+  const viewportWidth = Math.max(1, annotation ? Math.round(annotation.width) : viewport.width);
+  const viewportHeight = Math.max(1, annotation ? Math.round(annotation.height) : viewport.height);
+  const bounds = annotation ? annotationBounds(annotation) : null;
+  const box = bounds ? {
+    x: bounds.minX * viewportWidth,
+    y: bounds.minY * viewportHeight,
+    width: (bounds.maxX - bounds.minX) * viewportWidth,
+    height: (bounds.maxY - bounds.minY) * viewportHeight,
+  } : region;
+  if (!box) return null;
+  const x = Math.max(0, box.x);
+  const y = Math.max(0, box.y);
+  const width = Math.max(0, Math.min(viewportWidth, box.x + box.width) - x);
+  const height = Math.max(0, Math.min(viewportHeight, box.y + box.height) - y);
+  const overlay = annotation
+    ? <ReviewAnnotationGraphic annotation={{ ...annotation, width: viewportWidth, height: viewportHeight }} />
+    : <rect className="om-design-annotation-selection" x={x} y={y} width={width} height={height} vectorEffect="non-scaling-stroke" />;
   if (!imageUrl || imageStatus === 'unavailable') {
     return (
       <div className="om-design-annotation-fallback">
         <svg className="om-design-annotation-map" aria-hidden="true" viewBox={`0 0 ${viewportWidth} ${viewportHeight}`}>
           <rect className="om-design-annotation-map-page" width={viewportWidth} height={viewportHeight} vectorEffect="non-scaling-stroke" />
-          {selection}
+          {overlay}
         </svg>
-        {imageUrl ? t('Preview unavailable') : `${Math.round(region.width)} × ${Math.round(region.height)}`}
+        {imageUrl ? t('Preview unavailable') : `${Math.round(box.width)} × ${Math.round(box.height)}`}
       </div>
     );
   }
@@ -241,12 +257,15 @@ function AnnotationVisualPreview({
           width: `${viewportWidth / previewWidth * 100}%`,
           height: `${viewportHeight / previewHeight * 100}%`,
         }}
-        onLoad={() => setImageStatus('loaded')}
+        onLoad={() => {
+          setImageStatus('loaded');
+          onImageLoaded?.();
+        }}
         onError={() => setImageStatus('unavailable')}
       />
       {imageStatus === 'loaded' && (
         <svg className="om-design-annotation-snapshot-overlay" aria-hidden="true" viewBox={`${left} ${top} ${previewWidth} ${previewHeight}`} preserveAspectRatio="none">
-          {selection}
+          {overlay}
         </svg>
       )}
     </div>
@@ -335,6 +354,10 @@ export function DesignProjectEditor({
     externalAnnotateActive ? externalToolToDesignTool(externalAnnotTool) : 'none',
   );
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
+  const selectedCommentCardRef = useRef<HTMLDivElement>(null);
+  const [commentSlideIndexes, setCommentSlideIndexes] = useState(() => new Map<string, number>());
+  const commentSlideLookups = useRef(new Map<string, Promise<number | undefined>>());
+  const commentFocusRequest = useRef(0);
   const [pendingDraft, setPendingDraft] = useState<PendingDraft | null>(null);
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -375,6 +398,7 @@ export function DesignProjectEditor({
   const [penPoints, setPenPoints] = useState<ReviewPoint[]>([]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const isolatedDeckFrameRef = useRef<HTMLIFrameElement | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const bridgeToken = useMemo(() => makeRequestId('bridge'), []);
   const [previewScroll, setPreviewScroll] = useState<PreviewPoint>(ORIGIN);
@@ -535,6 +559,15 @@ export function DesignProjectEditor({
   const isDeck = useMemo(() => project?.scenario === 'deck' || (isHtmlActive && looksLikeDeck(fileContent)), [project?.scenario, isHtmlActive, fileContent]);
   const deckSlides = useMemo(() => (isDeck && fileContent ? parseDeckSlides(fileContent) : []), [isDeck, fileContent]);
   const speakerNotes = useMemo(() => (isDeck && fileContent ? parseSpeakerNotes(fileContent) : []), [isDeck, fileContent]);
+  const configureDeck = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage({
+      type: 'om:design-deck-mode',
+      token: bridgeToken,
+      enabled: isDeck,
+      singlePage: project?.scenario === 'deck',
+    }, '*');
+  }, [bridgeToken, isDeck, project?.scenario]);
+  useEffect(configureDeck, [configureDeck]);
 
   // Escape dismisses active annotation tool / composer
   useEffect(() => {
@@ -559,12 +592,20 @@ export function DesignProjectEditor({
       const fromOwnIframe = !iframeRef.current || !event.source || event.source === iframeRef.current.contentWindow;
       if (data.type === 'od:slide-state' && typeof data.active === 'number' && typeof data.count === 'number') {
         if (!fromOwnIframe) return;
+        const frame = iframeRef.current;
+        if (frame && event.source === frame.contentWindow && data.token === bridgeToken && typeof data.isolated === 'boolean') {
+          isolatedDeckFrameRef.current = data.isolated ? frame : null;
+        }
         setActiveSlide(data.active);
         setSlideCount(data.count);
         return;
       }
       if (data.token !== bridgeToken) return;
       if (!fromOwnIframe) return;
+      if (data.type === 'om:design-deck-ready') {
+        if (event.source && event.source === iframeRef.current?.contentWindow) configureDeck();
+        return;
+      }
       if (data.type === 'om:design-scroll' || data.type === 'om:design-element-boxes' || data.type === 'om:design-picked-scroll') {
         if (!event.source || event.source !== iframeRef.current?.contentWindow) return;
         if (data.type === 'om:design-picked-scroll') {
@@ -656,7 +697,7 @@ export function DesignProjectEditor({
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [bridgeToken, finishDrawingDraft]);
+  }, [bridgeToken, configureDeck, finishDrawingDraft]);
 
   // Toggle pick mode inside bridge iframe
   useEffect(() => {
@@ -813,9 +854,10 @@ export function DesignProjectEditor({
     if (!project) return;
     const popup = window.open('', 'om-design-presenter', 'width=1200,height=760');
     if (!popup) { showToast(t('Pop-up blocked by browser'), 'error', 'feedback'); return; }
-    const rawUrl = new URL(designRoutes.raw(project.id, activeFile || project.entry), window.location.origin).href;
+    const rawUrl = new URL(designRoutes.raw(project.id, activeFile || project.entry), window.location.origin);
+    rawUrl.searchParams.set('omBridge', bridgeToken);
     const total = Math.max(1, slideCount || deckSlides.length);
-    popup.document.write(buildPresenterPopupHtml(project.title, rawUrl, speakerNotes, total));
+    popup.document.write(buildPresenterPopupHtml(project.title, rawUrl.href, speakerNotes, total, bridgeToken));
     popup.document.close();
   };
 
@@ -920,9 +962,7 @@ export function DesignProjectEditor({
         comment,
         artifactId,
         chatId,
-        pageUrl: baseRawPreviewUrl,
         slideCount: isDeck ? Math.max(1, slideCount || deckSlides.length) : undefined,
-        captureBase: captureDesignSnapshot,
       });
       onAttachToChat(attachment, sendImmediately);
     } finally {
@@ -940,9 +980,7 @@ export function DesignProjectEditor({
           comment: c,
           artifactId,
           chatId,
-          pageUrl: baseRawPreviewUrl,
           slideCount: isDeck ? Math.max(1, slideCount || deckSlides.length) : undefined,
-          captureBase: idx === 0 ? captureDesignSnapshot : undefined,
         });
         const isLast = idx === Math.min(openComments.length, 8) - 1;
         onAttachToChat(attachment, sendImmediately && isLast);
@@ -981,11 +1019,13 @@ export function DesignProjectEditor({
       const rect = el?.getBoundingClientRect();
       const vw = frameWidth ?? Math.max(320, Math.round(el?.clientWidth || rect?.width || 1280));
       const vh = frameHeight ?? Math.max(240, Math.round(el?.clientHeight || rect?.height || 800));
+      const isolatedSlide = iframeRef.current && isolatedDeckFrameRef.current === iframeRef.current;
       const anchor: DesignCommentAnchor = {
         filePath: activeFile || project.entry,
         viewport: { id: effectiveViewportId, width: vw, height: vh },
         scroll: pendingDraft.scroll,
         ...(isDeck ? { slideIndex: activeSlide } : {}),
+        ...(isDeck && isolatedSlide ? { isolatedSlide: true } : {}),
         ...(pendingDraft.element ? { element: pendingDraft.element } : {}),
         ...(pendingDraft.region ? { region: pendingDraft.region } : {}),
         ...(pendingDraft.annotation ? { annotation: pendingDraft.annotation } : {}),
@@ -994,6 +1034,8 @@ export function DesignProjectEditor({
         text: effectiveText, anchor, expectedRevision: project.revision,
       });
       setComments(res.comments);
+      setSelectedCommentId(res.comment.id);
+      setCommentFilter(filter => filter === 'resolved' ? 'open' : filter);
       setPendingDraft(null);
       setCommentText('');
       updateAnnotationTool('none');
@@ -1095,6 +1137,25 @@ export function DesignProjectEditor({
     if (commentFilter === 'resolved') return comments.filter(c => c.status === 'resolved');
     return comments;
   }, [comments, openComments, commentFilter]);
+
+  useEffect(() => {
+    if (sidebarOpen && sidebarTab === 'comments') selectedCommentCardRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [commentFilter, selectedCommentId, sidebarOpen, sidebarTab]);
+
+  const resolveCommentSlide = useCallback((commentId: string) => {
+    const key = `${projectId}:${commentId}`;
+    const existing = commentSlideLookups.current.get(key);
+    if (existing) return existing;
+    const lookup = designClient.getCommentPreviewSlideIndex(projectId, commentId).then(index => {
+      if (index !== undefined) setCommentSlideIndexes(current => new Map(current).set(key, index));
+      return index;
+    }).catch(() => {
+      commentSlideLookups.current.delete(key);
+      return undefined;
+    });
+    commentSlideLookups.current.set(key, lookup);
+    return lookup;
+  }, [projectId]);
 
   const pinComments = useMemo(() => openComments.filter(c =>
     c.anchor.filePath === (activeFile || project?.entry)
@@ -1751,22 +1812,33 @@ export function DesignProjectEditor({
                   )}
 
                   {visibleComments.map((comment, idx) => {
-                    const { annotation, element, filePath, region, slideIndex, viewport } = comment.anchor;
+                    const { annotation, element, filePath, region, viewport } = comment.anchor;
                     const kindLabel = annotation ? t('Draw') : region ? t('Region') : element ? t('Element') : t('Comment');
                     const kindIcon = annotation ? 'pen-nib-line' : region ? 'shape-2-line' : 'chat-1-line';
                     const targetBox = region ?? element?.box;
+                    const legacyDeckComment = comment.anchor.slideIndex !== undefined && !comment.anchor.isolatedSlide && Boolean(targetBox || annotation);
+                    const slideIndex = commentSlideIndexes.get(`${projectId}:${comment.id}`) ?? comment.anchor.slideIndex;
                     const targetText = element?.text?.trim() || element?.label.trim();
                     const viewportLabel = designViewports.find(item => item.id === viewport.id)?.label ?? 'Desktop';
-                    const focusComment = () => {
+                    const focusComment = async () => {
+                      const request = ++commentFocusRequest.current;
+                      const targetSlide = legacyDeckComment ? (await resolveCommentSlide(comment.id)) ?? slideIndex : slideIndex;
+                      if (request !== commentFocusRequest.current) return;
                       setSelectedCommentId(comment.id);
                       setEffectiveViewMode('preview');
                       if (filePath && filePath !== activeFile) setActiveFile(filePath);
-                      if (isDeck && slideIndex !== undefined && slideIndex !== activeSlide) {
-                        sendDeckCommand('go', slideIndex);
+                      if (isDeck && targetSlide !== undefined && targetSlide !== activeSlide) {
+                        sendDeckCommand('go', targetSlide);
                       }
                     };
                     return (
-                      <div key={comment.id} className="om-design-item-card om-design-comment-card" data-active={selectedCommentId === comment.id} onClick={focusComment}>
+                      <div
+                        key={comment.id}
+                        ref={selectedCommentId === comment.id ? selectedCommentCardRef : undefined}
+                        className="om-design-item-card om-design-comment-card"
+                        data-active={selectedCommentId === comment.id}
+                        onClick={() => void focusComment()}
+                      >
                         <div className="om-design-comment-heading">
                           <span className="om-design-comment-location">
                             <RemixIcon name={kindIcon} size={13} />
@@ -1774,7 +1846,7 @@ export function DesignProjectEditor({
                             {slideIndex === undefined ? (
                               <span className="om-design-muted">{t(viewportLabel)}</span>
                             ) : (
-                              <Button type="button" size="sm" variant="ghost" onClick={event => { event.stopPropagation(); focusComment(); }}>
+                              <Button type="button" size="sm" variant="ghost" onClick={event => { event.stopPropagation(); void focusComment(); }}>
                                 {t('Slide {n}', { n: slideIndex + 1 })}
                               </Button>
                             )}
@@ -1786,7 +1858,8 @@ export function DesignProjectEditor({
                           region={targetBox}
                           annotation={annotation}
                           viewport={viewport}
-                          imageUrl={targetBox && !annotation ? designRoutes.commentPreview(project.id, comment.id) : undefined}
+                          imageUrl={targetBox || annotation ? designRoutes.commentPreview(project.id, comment.id) : undefined}
+                          onImageLoaded={legacyDeckComment ? () => void resolveCommentSlide(comment.id) : undefined}
                         />
                         <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>{comment.text}</p>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
@@ -1910,6 +1983,7 @@ export function DesignProjectEditor({
                         win.postMessage({ type: 'om:design-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
                         win.postMessage({ type: 'om:preview-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
                         win.postMessage({ type: 'om:design-request-scroll', token: bridgeToken }, '*');
+                        configureDeck();
                         trackAnnotations();
                       } catch { /* ignore */ }
                     }}

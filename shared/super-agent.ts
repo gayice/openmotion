@@ -84,6 +84,7 @@ export type SuperAgentBrowserAnnotation = {
   strokeBounds?: BrowserRect;
   screenshotUrl?: string;
   screenshotPath?: string;
+  screenshotSource?: 'saved-design-comment';
   consoleErrors?: string[];
   artifactId?: string;
   artifactKind?: SuperAgentArtifactKind;

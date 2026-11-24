@@ -39,6 +39,7 @@ const anchorSchema = obj({
     },
   }, ['x', 'y']),
   slideIndex: { type: 'integer', minimum: 0, maximum: 1000 },
+  isolatedSlide: { type: 'boolean' },
   element: obj({
     selector: { type: 'string', minLength: 1, maxLength: 500 },
     elementId: { type: 'string', minLength: 1, maxLength: 200 },

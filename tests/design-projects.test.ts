@@ -254,7 +254,7 @@ test('saved region preview captures the full annotated viewport and keeps the re
   }
 });
 
-test('saved region preview replays window and nested scrolling from the annotated viewport', { timeout: 30_000 }, async t => {
+test('saved region and pen previews replay window and nested scrolling from the annotated viewport', { timeout: 30_000 }, async t => {
   if (!await browserExecutable().catch(() => null)) {
     t.skip('Chrome or Chromium is unavailable');
     return;
@@ -294,14 +294,99 @@ test('saved region preview replays window and nested scrolling from the annotate
     const reference = await service.createComment(project.id, {
       requestId: 'scrolled-preview-reference', expectedRevision: current.project.revision, text: 'Expected capture', anchor: { ...anchor, filePath: 'expected.html' },
     });
+    const pen = await service.createComment(project.id, {
+      requestId: 'scrolled-preview-pen', expectedRevision: current.project.revision, text: 'Straight pen stroke',
+      anchor: {
+        filePath: 'index.html', viewport: { ...viewport, height: 320 }, scroll,
+        annotation: {
+          version: 1, coordinateSpace: 'normalized', width: viewport.width, height: viewport.height,
+          marks: [{ kind: 'pen', points: [{ x: 0.25, y: 0.4 }, { x: 0.75, y: 0.4 }] }],
+        },
+      },
+    });
 
     assert.deepEqual(atTarget.comment.anchor.scroll, scroll);
     const image = await service.renderCommentPreview(project.id, atTarget.comment.id);
     assert.equal(image.readUInt32BE(16), viewport.width);
     assert.equal(image.readUInt32BE(20), viewport.height);
     assert.deepEqual(image, await service.renderCommentPreview(project.id, reference.comment.id), 'The capture shows the viewport after both scrolls');
+    assert.deepEqual(await service.renderCommentPreview(project.id, pen.comment.id), image, 'The pen background uses the actual drawing dimensions and scroll position');
     assert.notDeepEqual(image, await service.renderCommentPreview(project.id, atTop.comment.id), 'Existing comments without scroll data still use the top viewport');
   } finally { await cleanup(); }
+});
+
+test('saved static deck previews report the captured slide for isolated and legacy scrolling views', { timeout: 30_000 }, async t => {
+  if (!await browserExecutable().catch(() => null)) {
+    t.skip('Chrome or Chromium is unavailable');
+    return;
+  }
+  const { dir, service, cleanup } = await tempService();
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+    if (!await designHttp(req, res, url, dir, 'http://127.0.0.1', async () => ({}))) {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
+  const { port } = server.address() as { port: number };
+  try {
+    const project = await service.create({ requestId: 'static-preview-create', scenario: 'deck' });
+    const viewport = { id: 'desktop' as const, width: 320, height: 180 };
+    const styles = `<style>
+      body { margin: 0; }
+      ::-webkit-scrollbar { display: none; }
+      section.slide { height: 180px; }
+      section.cover { background: #2045e3; }
+      section.middle { background: #e11342; }
+      section.target { background: #14ad65; }
+    </style>`;
+    const cover = '<section class="slide cover"><div class="slide"></div></section>';
+    const middle = '<section class="slide middle"></section>';
+    const target = '<section class="slide target"></section>';
+    const current = await service.write(project.id, {
+      requestId: 'static-preview-write', expectedRevision: project.revision,
+      files: [
+        { path: 'index.html', content: `<!doctype html>${styles}${cover}${middle}${target}` },
+        { path: 'target.html', content: `<!doctype html>${styles}${target}` },
+      ],
+    });
+    const anchor = { filePath: 'index.html', viewport, region: { x: 15, y: 35, width: 100, height: 40 } };
+    const input = { expectedRevision: current.project.revision, text: 'Mark on the target slide' };
+    await assert.rejects(service.createComment(project.id, {
+      ...input, requestId: 'static-preview-without-slide-index', anchor: { ...anchor, isolatedSlide: true },
+    }), (error: unknown) => error instanceof DesignError && error.code === 'INVALID_ARGUMENT');
+    const isolated = await service.createComment(project.id, {
+      ...input, requestId: 'static-preview-isolated', anchor: { ...anchor, slideIndex: 2, isolatedSlide: true },
+    });
+    const legacy = await service.createComment(project.id, {
+      ...input, requestId: 'static-preview-legacy', anchor: { ...anchor, slideIndex: 0, scroll: { x: 0, y: 360 } },
+    });
+    const reference = await service.createComment(project.id, {
+      ...input, requestId: 'static-preview-reference', anchor: { ...anchor, filePath: 'target.html' },
+    });
+    const prefix = `http://127.0.0.1:${port}/api/design/projects/${project.id}/comments`;
+    const [referencePreview, isolatedPreview, legacyPreview] = await Promise.all(
+      [reference, isolated, legacy].map(({ comment }) => fetch(`${prefix}/${comment.id}/preview`)),
+    );
+    assert.equal(referencePreview.status, 200);
+    assert.equal(isolatedPreview.status, 200);
+    assert.equal(legacyPreview.status, 200);
+    assert.equal(referencePreview.headers.get('x-openmotion-slide-index'), null);
+    assert.equal(isolatedPreview.headers.get('x-openmotion-slide-index'), '2');
+    assert.equal(legacy.comment.anchor.slideIndex, 0);
+    assert.equal(legacyPreview.headers.get('x-openmotion-slide-index'), '2');
+    const expected = Buffer.from(await referencePreview.arrayBuffer());
+    assert.deepEqual(Buffer.from(await isolatedPreview.arrayBuffer()), expected, 'Isolated snapshots show the recorded top-level slide');
+    assert.deepEqual(Buffer.from(await legacyPreview.arrayBuffer()), expected, 'Legacy snapshots keep the original document scroll position');
+    const legacyMetadata = await fetch(`${prefix}/${legacy.comment.id}/preview?view=viewport`, { method: 'HEAD' });
+    assert.equal(legacyMetadata.status, 200);
+    assert.equal(legacyMetadata.headers.get('x-openmotion-slide-index'), '2');
+    assert.equal(legacyMetadata.headers.get('content-length'), String(expected.length));
+    assert.equal((await legacyMetadata.arrayBuffer()).byteLength, 0);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await cleanup();
+  }
 });
 
 test('saved element preview renders the annotated deck page from the original revision', { timeout: 30_000 }, async t => {
@@ -370,6 +455,7 @@ test('saved element preview renders the annotated deck page from the original re
     });
 
     const image = await service.renderCommentPreview(project.id, original.comment.id);
+    assert.equal((await service.renderCommentPreviewDetails(project.id, original.comment.id)).slideIndex, 3);
     assert.equal(image.readUInt32BE(16), viewport.width);
     assert.equal(image.readUInt32BE(20), viewport.height);
     assert.deepEqual(image, await service.renderCommentPreview(project.id, reference.comment.id), 'The recorded fourth slide is shown');

@@ -24,7 +24,7 @@ import {
   type AgentToolCallRequest,
   type AgentToolCallResponse,
 } from '../shared/agent-runtimes.ts';
-import { phase1Tools, validateInput } from '../shared/phase1-tools.ts';
+import { normalizeToolInput, phase1Tools, validateInput } from '../shared/phase1-tools.ts';
 import {
   artifactToSuperAgentIntent,
   classifySuperAgentTool,
@@ -142,6 +142,7 @@ interface ActiveSuperAgentChat {
   writtenGameCodeIds?: Set<string>;
   presentedArtifactIds?: Set<string>;
   turnUserMessageId?: string;
+  attachedDesignComments: ReadonlyArray<{ projectId?: string; commentId?: string }>;
   beforeSnapshot?: WorkspaceSnapshot;
 }
 
@@ -1643,6 +1644,11 @@ export class SuperAgentConversations {
         reasoningStartedAt: new Map(),
         codexToolMeta: new Map(),
         codexToolOutputs: new Map(),
+        attachedDesignComments: (input.attachments ?? []).flatMap(attachment => {
+          if (attachment?.kind !== 'browser-annotation' || attachment.annotation?.mode !== 'design-comment') return [];
+          const { projectId, commentId } = attachment.annotation;
+          return [{ projectId, commentId }];
+        }),
         runtime,
         runtimeId: resolvedRuntimeId,
         bin: resolvedBin,
@@ -2211,6 +2217,12 @@ export class SuperAgentConversations {
     }
     if (input.hiddenInstructions?.trim()) {
       taskDirectiveParts.push(input.hiddenInstructions.trim());
+    }
+    if (active.attachedDesignComments.length) {
+      taskDirectiveParts.push([
+        'Update or delete only the saved Design comments attached to the current message, identified by projectId and commentId.',
+        'Mark an attached comment resolved after verifying that its requested change is complete.',
+      ].join(' '));
     }
     if (taskDirectiveParts.length > 0) {
       blocks.push(`<openmotion-task-instructions>\n${taskDirectiveParts.join('\n\n')}\n</openmotion-task-instructions>`);
@@ -3534,6 +3546,14 @@ export class SuperAgentConversations {
     const phase1Def = exposedPhase1Tools.find(tool => tool.name === normalizedTool);
     if (!phase1Def) throw new Error(`Unknown tool: ${toolName}`);
     const args = { ...rawArgs };
+    if (normalizedTool === 'openmotion_design_comments' && active.attachedDesignComments.length) {
+      const { action, projectId, commentId } = normalizeToolInput(phase1Def.inputSchema, args);
+      if ((action === 'update' || action === 'delete')
+        && !(typeof projectId === 'string' && typeof commentId === 'string'
+          && active.attachedDesignComments.some(comment => comment.projectId === projectId && comment.commentId === commentId))) {
+        throw new Error('This turn can update or delete only the saved Design comments attached to the current message.');
+      }
+    }
     const isLegacyGenerate = (normalizedTool === 'openmotion_assets_use' || normalizedTool === 'openmotion_media_use') && args.action === 'generate';
     const isCapabilityRun = normalizedTool === 'openmotion_capability_run'
       && (args.action === undefined || args.action === 'run')
