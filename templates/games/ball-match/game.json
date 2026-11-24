@@ -1,7 +1,7 @@
 {
   "id": "ball-match",
-  "title": "Ball Match",
-  "description": "Connect chains of matching colorful spheres to pop clusters, trigger bombs, and hit each stage target within limited moves.",
+  "title": "Jelly Ball Chain Pop",
+  "description": "Trace long glossy chains across a 3D bubble grid, pop huge clusters before moves run dry, and drop bombs to blast through tight goals.",
   "genre": "casual",
   "style": "3d",
   "setting": "modern",
@@ -10,7 +10,7 @@
   "status": "published",
   "cover": "cover.webp",
   "entry": "index.html",
-  "controls": "Drag across adjacent balls of the same color to link and pop them before moves run out.",
+  "controls": "Press and drag through adjacent balls of the same color, then release to pop. Trigger bombs when moves get tight.",
   "plays": 0,
   "likes": 0,
   "dislikes": 0,
@@ -22,9 +22,9 @@
   ],
   "i18n": {
     "zh-CN": {
-      "title": "球球消消乐",
-      "description": "连线消除同色立体彩球，触发炸弹与连击特效，在限定步数内完成每关收集目标。",
-      "controls": "按住并滑动连接相邻同色彩球，松手即可连线消除，善用炸弹道具过关。"
+      "title": "弹珠连线爆爆乐",
+      "description": "一指划过满屏果冻感立体彩球，连得越长、爆得越爽！步数紧巴巴的时候甩出一颗骷髅炸弹瞬间清场，专治各种不开心。",
+      "controls": "按住相邻的同色彩球一笔连到底，松手立刻噼里啪啦消一片，攒够金币随时炸翻全场！"
     }
   }
 }

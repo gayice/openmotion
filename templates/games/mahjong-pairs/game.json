@@ -1,7 +1,7 @@
 {
   "id": "mahjong-pairs",
-  "title": "Mahjong Pairs",
-  "description": "Slide rows and columns of classic mahjong tiles to line up matching pairs and clear every tile from the board.",
+  "title": "Mahjong Slide & Pair",
+  "description": "No hand-counting required — shove whole rows and columns of classic tiles until twins collide, snap pairs off the emerald felt, and clear the table.",
   "genre": "casual",
   "style": "minimal",
   "setting": "retro",
@@ -10,7 +10,7 @@
   "status": "published",
   "cover": "cover.webp",
   "entry": "index.html",
-  "controls": "Tap adjacent matching tiles or drag a row/column to slide tiles together and eliminate matching pairs.",
+  "controls": "Tap adjacent matching tiles to clear them, or slide any row/column to line up pairs. Use Hint or Shuffle anytime.",
   "plays": 0,
   "likes": 0,
   "dislikes": 0,
@@ -22,9 +22,9 @@
   ],
   "i18n": {
     "zh-CN": {
-      "title": "雀神对对消",
-      "description": "推动麻将牌行或列，让相同牌面相邻并成对消除，巧用洗牌与提示清空整盘。",
-      "controls": "点击相邻的两张相同麻将直接消除，或拖动整行/整列推牌对齐后消除。"
+      "title": "雀神推牌对对消",
+      "description": "不用凑番也能当雀神！整行整列「哗啦」一推，把两张相同的萬、筒、條、红中推到面对面直接碰走，节奏丝滑到根本停不下来。",
+      "controls": "相邻同牌直接点掉，隔得远就拖住整行或整列推过去对齐；眼花时随时点「提示」或「洗牌」翻盘！"
     }
   }
 }

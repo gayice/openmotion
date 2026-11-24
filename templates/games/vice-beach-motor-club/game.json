@@ -1,7 +1,7 @@
 {
   "id": "vice-beach-motor-club",
-  "title": "Vice Beach Motor Club",
-  "description": "Race a 3D City ASCII convertible across Vice Beach and Liberty City in circuit or knockout events, chaining drifts, slipstreams, and garage upgrades.",
+  "title": "Vice Beach: Neon Drift Club",
+  "description": "Tear across sunset Art Deco palms and rain-slicked Liberty bridges in a 3D ASCII convertible — chain drifts, slipstream boosts, paint-trading bumps, and garage upgrades.",
   "genre": "racing",
   "style": "ascii",
   "setting": "retro",
@@ -10,7 +10,7 @@
   "status": "published",
   "cover": "cover.webp",
   "entry": "index.html",
-  "controls": "W/S or Up/Down to drive and brake, A/D or Left/Right to steer, hold Space while turning to drift, double-tap Space for nitro, C to switch camera, P/Esc to pause.",
+  "controls": "W/S or Up/Down to drive, A/D or Left/Right to steer, hold Space to drift, double-tap Space for nitro, C to cycle 4 cameras (including cockpit).",
   "plays": 0,
   "likes": 0,
   "dislikes": 0,
@@ -22,9 +22,9 @@
   ],
   "i18n": {
     "zh-CN": {
-      "title": "罪恶海滩赛车俱乐部",
-      "description": "驾驶 3D 字符美学敞篷车驰骋罪恶海滩与自由城双赛道，体验漂移充能、尾流加速、淘汰赛与车库改装。",
-      "controls": "W/S 或方向上下键油门刹车，A/D 或左右键转向，转弯时按住空格漂移，双击空格释放氮气，C 切换视角，P/Esc 暂停。"
+      "title": "罪恶海滩：霓虹夜飙",
+      "description": "开上白色复古敞篷车，在日落棕榈海滩与雨夜自由城大桥狂飙！贴尾吸风、弯道甩尾攒氮气、直接撞飞对手，赢了积分还能进车库改装引擎和撞击装甲。",
+      "controls": "W/S 或上下键油门刹车，A/D 或左右键转向，入弯按住空格漂移充能，双击空格喷射氮气，C 键切换四种镜头（含第一人称驾驶舱）！"
     }
   }
 }
