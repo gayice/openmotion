@@ -123,6 +123,8 @@ export type SignedConfigPayload = {
     allowBlankPopups?: boolean;
   };
   minShellVersion?: string;
+  minShellVersionReason?: string;
+  updateDownloadUrl?: string;
   featureFlags?: Record<string, boolean>;
   agents?: Record<string, SignedAgentProbeRule>;
   configRules?: Record<string, SignedAgentConfigRule>;
@@ -216,6 +218,42 @@ export function validateSignedConfigPayloadBounds(
 
   if (payload.studioUrl !== undefined && !isUrlInAllowedDomainScope(payload.studioUrl, urlOpts)) {
     issues.push({ path: 'studioUrl', message: `studioUrl outside allowed domain scope: ${payload.studioUrl}` });
+  }
+
+  if (payload.minShellVersion !== undefined) {
+    if (
+      typeof payload.minShellVersion !== 'string' ||
+      payload.minShellVersion.length > 64 ||
+      !/^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(payload.minShellVersion.trim())
+    ) {
+      issues.push({
+        path: 'minShellVersion',
+        message: `minShellVersion must be a valid semver string: ${String(payload.minShellVersion)}`,
+      });
+    }
+  }
+
+  if (payload.minShellVersionReason !== undefined) {
+    if (
+      typeof payload.minShellVersionReason !== 'string' ||
+      payload.minShellVersionReason.length > 500 ||
+      /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(payload.minShellVersionReason)
+    ) {
+      issues.push({
+        path: 'minShellVersionReason',
+        message: 'minShellVersionReason must be plain text up to 500 characters',
+      });
+    }
+  }
+
+  if (
+    payload.updateDownloadUrl !== undefined &&
+    !isUrlInAllowedDomainScope(payload.updateDownloadUrl, urlOpts)
+  ) {
+    issues.push({
+      path: 'updateDownloadUrl',
+      message: `updateDownloadUrl outside allowed domain scope: ${payload.updateDownloadUrl}`,
+    });
   }
 
   for (const [idx, origin] of (payload.allowedOrigins ?? []).entries()) {

@@ -23,6 +23,7 @@ export const DEFAULT_STUDIO_URLS: Record<HostReleaseChannel, string> = {
 
 export const DEFAULT_UPDATE_BASE_URL = 'https://releases.open-design.ai/open-motion/desktop' as const;
 export const DEFAULT_SIGNED_CONFIG_BASE_URL = 'https://releases.open-design.ai/open-motion/desktop/config' as const;
+export const DEFAULT_DESKTOP_DOWNLOAD_URL = 'https://open-design.ai' as const;
 
 /**
  * Allowed domains baked into the shell.

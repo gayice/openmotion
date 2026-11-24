@@ -938,3 +938,174 @@
     animation: none;
   }
 }
+
+/* Desktop updater prompt: non-intrusive floating banner, release notes modal, and mandatory update gate */
+.om-desktop-update-banner {
+  position: fixed;
+  right: var(--motion-space-16);
+  bottom: var(--motion-space-16);
+  z-index: 120;
+  width: min(380px, calc(100vw - 32px));
+  display: grid;
+  gap: var(--motion-space-12);
+  padding: var(--motion-space-14) var(--motion-space-16);
+  border-radius: var(--motion-radius-lg);
+  border: 1px solid var(--motion-border);
+  background: var(--motion-raised);
+  color: var(--motion-strong);
+  box-shadow: var(--motion-shadow-lg);
+}
+.om-desktop-update-banner-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--motion-space-10);
+  min-width: 0;
+}
+.om-desktop-update-banner-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-accent-soft);
+  color: var(--motion-accent);
+}
+.om-desktop-update-banner-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--motion-space-2);
+}
+.om-desktop-update-banner-title {
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-semibold);
+  color: var(--motion-strong);
+  overflow-wrap: anywhere;
+}
+.om-desktop-update-banner-desc {
+  font-size: var(--motion-text-xs);
+  color: var(--motion-muted);
+  line-height: 1.45;
+}
+.om-desktop-update-banner-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--motion-space-8);
+}
+.om-desktop-update-progress {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--motion-radius-pill);
+  background: var(--motion-panel);
+  border: 1px solid var(--motion-border-subtle);
+  overflow: hidden;
+}
+.om-desktop-update-progress-bar {
+  height: 100%;
+  border-radius: var(--motion-radius-pill);
+  background: var(--motion-accent);
+  transition: width var(--motion-duration-fast) var(--motion-ease-out);
+}
+.om-desktop-update-dialog {
+  display: grid;
+  gap: var(--motion-space-16);
+}
+.om-desktop-update-dialog > header {
+  margin-bottom: 0;
+}
+.om-desktop-update-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--motion-space-8);
+  color: var(--motion-muted);
+}
+.om-desktop-update-notes {
+  display: grid;
+  gap: var(--motion-space-10);
+  max-height: min(360px, 46dvh);
+  overflow-y: auto;
+  padding: var(--motion-space-12) var(--motion-space-14);
+  border-radius: var(--motion-radius-md);
+  border: 1px solid var(--motion-border-subtle);
+  background: var(--motion-panel);
+  font-size: var(--motion-text-sm);
+  line-height: 1.55;
+  color: var(--motion-strong);
+}
+.om-desktop-update-notes-heading {
+  margin: var(--motion-space-4) 0 0;
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-semibold);
+  color: var(--motion-strong);
+}
+.om-desktop-update-notes-heading:first-child {
+  margin-top: 0;
+}
+.om-desktop-update-notes-list {
+  margin: 0;
+  padding-left: var(--motion-space-20);
+  display: grid;
+  gap: var(--motion-space-4);
+}
+.om-desktop-update-notes-paragraph {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.om-desktop-mandatory-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+}
+.om-desktop-mandatory-dialog {
+  z-index: 261;
+  display: grid;
+  gap: var(--motion-space-16);
+}
+.om-desktop-mandatory-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: var(--motion-space-6);
+  padding: var(--motion-space-4) var(--motion-space-10);
+  border-radius: var(--motion-radius-pill);
+  background: var(--motion-warning-soft);
+  color: var(--motion-warning);
+  font-size: var(--motion-text-xs);
+  font-weight: var(--motion-weight-semibold);
+}
+.om-desktop-mandatory-reason {
+  padding: var(--motion-space-10) var(--motion-space-12);
+  border-radius: var(--motion-radius-md);
+  border: 1px solid var(--motion-border-subtle);
+  background: var(--motion-panel);
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.om-desktop-mandatory-status {
+  display: grid;
+  gap: var(--motion-space-8);
+}
+.om-desktop-update-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-accent);
+  border: 1.5px solid var(--motion-raised);
+  pointer-events: none;
+}
+.om-desktop-update-menu-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-accent);
+}

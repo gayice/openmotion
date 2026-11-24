@@ -75,6 +75,7 @@ export type RegisterDesktopCapabilitiesDeps = {
     switchAccount?: boolean;
   }) => Promise<Record<string, unknown>>;
   maybeReloadMainWindowForSignedConfigChange: () => void;
+  onSignedConfigApplied?: () => void;
   buildDesktopPreferencesSnapshot: () => DesktopPreferencesSnapshot;
   refreshDesktopMenus: (force?: boolean) => void;
   emitPreferencesChanged: () => void;
@@ -257,6 +258,7 @@ export function registerDesktopCapabilities(deps: RegisterDesktopCapabilitiesDep
             tags: { outcome },
           });
           if (result.applied && !result.unchanged) {
+            deps.onSignedConfigApplied?.();
             registry.emit(HOST_CAPABILITIES.SIGNED_CONFIG, 'updated', deps.signedConfig.getStatus());
             deps.maybeReloadMainWindowForSignedConfigChange();
           }

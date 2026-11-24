@@ -418,6 +418,14 @@ export function resolveUpdaterMenuPresentation(
       enabled: false,
     };
   }
+  if (state?.mandatory) {
+    const ver = state.minRequiredVersion ? ` (v${state.minRequiredVersion})` : '';
+    return {
+      label: zh ? `需要更新${ver}…` : `Update Required${ver}…`,
+      action: 'check',
+      enabled: true,
+    };
+  }
   return {
     label: zh ? '检查更新…' : 'Check for Updates…',
     action: 'check',

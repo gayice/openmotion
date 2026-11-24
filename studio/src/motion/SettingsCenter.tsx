@@ -20,6 +20,7 @@ import { DiagnosticExport } from './DiagnosticExport';
 import { discord, feishu } from './CommunityLink';
 import { GITHUB_REPOSITORY, repositorySupportLinks } from './githubRepository';
 import { SettingsSurfaceBoundary } from './SettingsSurfaceBoundary';
+import { DesktopReleaseNotesDialog } from './DesktopUpdatePrompt';
 import {
   getDesktopHostBridge,
   isDesktopApp,
@@ -410,6 +411,7 @@ function ResourceSettings({ about, openConnections }: { about: boolean; openConn
   const { t, locale } = useI18n();
   const desktopApp = isDesktopApp();
   const updater = useDesktopUpdateState();
+  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
   const communityLinks = locale === 'zh-CN' ? [feishu, discord] : [discord, feishu];
   const [version, setVersion] = useState<string>();
   useEffect(() => {
@@ -462,9 +464,31 @@ function ResourceSettings({ about, openConnections }: { about: boolean; openConn
       )}
       {about && desktopApp && (
         <section className="om-card om-card-stack">
-          <h2 className="om-subtitle">{t('Desktop updates')}</h2>
+          <div className="om-settings-row">
+            <h2 className="om-subtitle">{t('Desktop updates')}</h2>
+            {updater.state?.mandatory && (
+              <span className="om-desktop-mandatory-badge">
+                <RemixIcon name="alert-line" size={14} aria-hidden="true" />
+                {t('Update required')}
+              </span>
+            )}
+          </div>
           <p className="om-muted">{updateStatusLabel}</p>
-          <div className="om-mcp-actions">
+          {updater.state?.status === 'downloading' && (
+            <div
+              className="om-desktop-update-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.max(0, Math.min(100, Math.round(updater.state.progress ?? 0)))}
+            >
+              <div
+                className="om-desktop-update-progress-bar"
+                style={{ width: `${Math.max(0, Math.min(100, Math.round(updater.state.progress ?? 0)))}%` }}
+              />
+            </div>
+          )}
+          <div className="om-settings-actions">
             {updater.state?.status === 'downloaded' ? (
               <Button variant="primary" className="om-button h-auto" disabled={updater.busy} onClick={() => void updater.installUpdateNow()}>
                 {t('Restart and install update')}
@@ -478,7 +502,23 @@ function ResourceSettings({ about, openConnections }: { about: boolean; openConn
                 {t('Check for updates')}
               </Button>
             )}
+            {(updater.state?.releaseNotes || updater.state?.releaseNotesUrl) && (
+              <Button variant="ghost" className="om-button h-auto" onClick={() => setReleaseNotesOpen(true)}>
+                <RemixIcon name="file-text-line" size={14} />
+                {t('View release notes')}
+              </Button>
+            )}
           </div>
+          {updater.state && (
+            <DesktopReleaseNotesDialog
+              open={releaseNotesOpen}
+              onClose={() => setReleaseNotesOpen(false)}
+              state={updater.state}
+              busy={updater.busy}
+              onDownload={() => void updater.downloadUpdate()}
+              onInstall={() => void updater.installUpdateNow()}
+            />
+          )}
         </section>
       )}
       <div className="om-card om-resource-links">

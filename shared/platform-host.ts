@@ -31,8 +31,13 @@ export type DesktopUpdateState = {
   availableVersion?: string;
   progress?: number;
   message?: string;
+  releaseNotes?: string;
   releaseNotesUrl?: string;
   checkedAt?: string;
+  mandatory?: boolean;
+  minRequiredVersion?: string;
+  mandatoryReason?: string;
+  downloadUrl?: string;
 };
 
 export type DesktopMenuAction =

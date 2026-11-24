@@ -1,4 +1,5 @@
 import {
+  DEFAULT_DESKTOP_DOWNLOAD_URL,
   DEFAULT_UPDATE_BASE_URL,
   isUrlInAllowedDomainScope,
 } from '../../shared/desktop-builtin-rules.ts';
@@ -192,6 +193,76 @@ export function resolveElectronAutoUpdater(mod: unknown): AutoUpdaterLike {
   return candidate as AutoUpdaterLike;
 }
 
+export type DesktopMinimumVersionPolicy = {
+  minRequiredVersion?: string;
+  reason?: string;
+  downloadUrl?: string;
+};
+
+const MAX_RELEASE_NOTES_LENGTH = 4000;
+const SEMVER_PATTERN = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+function decodeBasicHtmlEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'");
+}
+
+function htmlOrMarkdownToPlainText(raw: string): string {
+  const withoutScripts = raw
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+  const withBreaks = withoutScripts
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\s*li\b[^>]*>/gi, '\n- ')
+    .replace(/<\/\s*(?:p|div|li|ul|ol|h[1-6]|tr|blockquote)\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '');
+  return decodeBasicHtmlEntities(withBreaks)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Normalizes `electron-updater` `info.releaseNotes` (which may be a string,
+ * HTML fragment, or array of `{ version, note }` items) into safe bounded
+ * plain text suitable for rendering in Studio without `innerHTML`.
+ */
+export function sanitizeReleaseNotes(raw: unknown): string | undefined {
+  let combined = '';
+  if (typeof raw === 'string') {
+    combined = htmlOrMarkdownToPlainText(raw);
+  } else if (Array.isArray(raw)) {
+    const sections: string[] = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const version =
+        typeof (entry as { version?: unknown }).version === 'string'
+          ? (entry as { version: string }).version.trim()
+          : '';
+      const noteRaw = (entry as { note?: unknown }).note;
+      const note = typeof noteRaw === 'string' ? htmlOrMarkdownToPlainText(noteRaw) : '';
+      if (!note) continue;
+      if (version && raw.length > 1) {
+        sections.push(`v${normalizeSemver(version)}\n${note}`);
+      } else {
+        sections.push(note);
+      }
+    }
+    combined = sections.join('\n\n').trim();
+  }
+  if (!combined) return undefined;
+  if (combined.length > MAX_RELEASE_NOTES_LENGTH) {
+    return `${combined.slice(0, MAX_RELEASE_NOTES_LENGTH - 1).trimEnd()}…`;
+  }
+  return combined;
+}
+
 function resolveSafeReleaseNotesUrl(
   info: unknown,
   channel: HostReleaseChannel,
@@ -262,6 +333,50 @@ export class DesktopUpdaterController {
     return { ...this.state };
   }
 
+  /**
+   * Applies the minimum supported desktop shell version policy (typically from
+   * the Ed25519 signed config). When `currentVersion < minRequiredVersion`,
+   * sets `mandatory: true` so Studio can display a non-dismissable update gate.
+   */
+  setMinimumVersionPolicy(policy: DesktopMinimumVersionPolicy | null | undefined): DesktopUpdateState {
+    const rawMin = typeof policy?.minRequiredVersion === 'string' ? policy.minRequiredVersion.trim() : '';
+    const minRequiredVersion = rawMin && SEMVER_PATTERN.test(rawMin) ? normalizeSemver(rawMin) : undefined;
+    const mandatory = Boolean(
+      minRequiredVersion && compareSemver(this.state.currentVersion, minRequiredVersion) < 0,
+    );
+    const rawReason = typeof policy?.reason === 'string'
+      ? policy.reason.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').trim().slice(0, 500)
+      : '';
+    const mandatoryReason = mandatory && rawReason ? rawReason : undefined;
+
+    const rawDownloadUrl = typeof policy?.downloadUrl === 'string' ? policy.downloadUrl.trim() : '';
+    const safeDownloadUrl =
+      rawDownloadUrl &&
+      isUrlInAllowedDomainScope(rawDownloadUrl, {
+        channel: this.scopeChannel,
+        allowLocalDevLoopback: this.allowLocalDevLoopback,
+      })
+        ? rawDownloadUrl
+        : undefined;
+    const downloadUrl = safeDownloadUrl ?? (mandatory ? DEFAULT_DESKTOP_DOWNLOAD_URL : undefined);
+
+    if (
+      Boolean(this.state.mandatory) === mandatory &&
+      this.state.minRequiredVersion === minRequiredVersion &&
+      this.state.mandatoryReason === mandatoryReason &&
+      this.state.downloadUrl === downloadUrl
+    ) {
+      return this.getState();
+    }
+
+    return this.setState({
+      mandatory: mandatory || undefined,
+      minRequiredVersion,
+      mandatoryReason,
+      downloadUrl,
+    });
+  }
+
   subscribe(listener: (state: DesktopUpdateState) => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -313,6 +428,7 @@ export class DesktopUpdaterController {
         this.setState({
           status: 'available',
           availableVersion: typeof info?.version === 'string' ? info.version : undefined,
+          releaseNotes: sanitizeReleaseNotes(info?.releaseNotes),
           releaseNotesUrl: resolveSafeReleaseNotesUrl(
             info,
             this.scopeChannel,
@@ -327,6 +443,8 @@ export class DesktopUpdaterController {
           status: 'up-to-date',
           availableVersion: undefined,
           progress: undefined,
+          releaseNotes: undefined,
+          releaseNotesUrl: undefined,
           checkedAt: new Date().toISOString(),
           message: undefined,
         });
@@ -339,10 +457,18 @@ export class DesktopUpdaterController {
         this.setState({ status: 'downloading', progress: percent, message: undefined });
       });
       updater.on('update-downloaded', (info: any) => {
+        const nextNotes = sanitizeReleaseNotes(info?.releaseNotes);
+        const nextNotesUrl = resolveSafeReleaseNotesUrl(
+          info,
+          this.scopeChannel,
+          this.allowLocalDevLoopback,
+        );
         this.setState({
           status: 'downloaded',
           availableVersion:
             typeof info?.version === 'string' ? info.version : this.state.availableVersion,
+          releaseNotes: nextNotes ?? this.state.releaseNotes,
+          releaseNotesUrl: nextNotesUrl ?? this.state.releaseNotesUrl,
           progress: 100,
           message: undefined,
         });

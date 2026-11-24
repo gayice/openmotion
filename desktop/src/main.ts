@@ -442,6 +442,25 @@ const updater = new DesktopUpdaterController({
   feedUrl: !app.isPackaged ? process.env.MOTION_DESKTOP_UPDATE_URL?.trim() || undefined : undefined,
 });
 
+function syncUpdaterPolicyFromSignedConfig(options?: { triggerCheckIfMandatory?: boolean }): void {
+  const active = signedConfig.getActiveConfig();
+  const nextState = updater.setMinimumVersionPolicy({
+    minRequiredVersion: active.minShellVersion,
+    reason: active.minShellVersionReason,
+    downloadUrl: active.updateDownloadUrl,
+  });
+  if (
+    options?.triggerCheckIfMandatory &&
+    nextState.mandatory &&
+    app.isPackaged &&
+    (nextState.status === 'idle' || nextState.status === 'up-to-date')
+  ) {
+    void updater.checkForUpdates().catch(() => {});
+  }
+}
+
+syncUpdaterPolicyFromSignedConfig();
+
 let pendingLoginReturnPath: string | undefined;
 const handoffSupportCache = new Map<string, { supported: boolean; checkedAt: number }>();
 const HANDOFF_PROBE_CACHE_TTL_MS = 30_000;
@@ -1624,6 +1643,9 @@ function registerCapabilities(): void {
     startDesktopSignIn,
     openInWindowLoginFlow,
     maybeReloadMainWindowForSignedConfigChange,
+    onSignedConfigApplied: () => {
+      syncUpdaterPolicyFromSignedConfig({ triggerCheckIfMandatory: true });
+    },
     buildDesktopPreferencesSnapshot,
     refreshDesktopMenus,
     emitPreferencesChanged,
@@ -2126,10 +2148,17 @@ function preconnectStudioOrigin(): void {
 }
 
 function scheduleStartupUpdateCheck(): void {
-  if (!app.isPackaged || startupUpdateCheckTimer || !isAutoCheckUpdatesEnabled()) return;
+  if (!app.isPackaged) return;
+  if (updater.getState().mandatory) {
+    if (!shuttingDown) {
+      void updater.checkForUpdates().catch(() => {});
+    }
+    return;
+  }
+  if (startupUpdateCheckTimer || !isAutoCheckUpdatesEnabled()) return;
   startupUpdateCheckTimer = setTimeout(() => {
     startupUpdateCheckTimer = null;
-    if (shuttingDown || !isAutoCheckUpdatesEnabled()) return;
+    if (shuttingDown || (!isAutoCheckUpdatesEnabled() && !updater.getState().mandatory)) return;
     void updater.checkForUpdates().catch(() => {});
   }, STARTUP_UPDATE_CHECK_DELAY_MS);
 }
@@ -2268,6 +2297,7 @@ function refreshSignedConfigInBackground(): void {
     .fetchAndApply()
     .then(result => {
       if (result.applied && !result.unchanged) {
+        syncUpdaterPolicyFromSignedConfig({ triggerCheckIfMandatory: true });
         registry.emit(HOST_CAPABILITIES.SIGNED_CONFIG, 'updated', signedConfig.getStatus());
         maybeReloadMainWindowForSignedConfigChange();
       }

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_UPDATE_BASE_URL } from '../../shared/desktop-builtin-rules.ts';
+import { DEFAULT_DESKTOP_DOWNLOAD_URL, DEFAULT_UPDATE_BASE_URL } from '../../shared/desktop-builtin-rules.ts';
 import { validateSignedConfigPayloadBounds } from '../../shared/signed-config.ts';
 import { generateEd25519KeyPair } from '../../packages/signed-config/index.ts';
 import { injectBundleDebugId, resolveBuildTrustAnchors } from '../scripts/build.mjs';
@@ -24,7 +24,9 @@ import {
   resolveElectronAutoUpdater,
   resolvePackagedReleaseChannel,
   resolveUpdateFeedConfig,
+  sanitizeReleaseNotes,
 } from '../src/updater.ts';
+import { resolveUpdaterMenuPresentation } from '../src/ux-controllers.ts';
 
 const testsDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(testsDir, '..');
@@ -1085,4 +1087,129 @@ test('notify-feishu-release groups a structured changelog and links the previous
       }),
     /sign match fail/,
   );
+});
+
+test('sanitizeReleaseNotes strips unsafe HTML, decodes entities, handles arrays, and bounds length', () => {
+  const htmlNotes =
+    '<h2>Highlights</h2><script>alert(1)</script><ul><li>Faster startup &amp; playback</li><li>Fixed &lt;canvas&gt; glitch</li></ul><p>Thanks!</p>';
+  const sanitized = sanitizeReleaseNotes(htmlNotes);
+  assert.equal(sanitized?.includes('<script>'), false);
+  assert.equal(sanitized?.includes('alert(1)'), false);
+  assert.equal(sanitized?.includes('<h2>'), false);
+  assert.match(sanitized ?? '', /Highlights/);
+  assert.match(sanitized ?? '', /- Faster startup & playback/);
+  assert.match(sanitized ?? '', /- Fixed <canvas> glitch/);
+  assert.match(sanitized ?? '', /Thanks!/);
+
+  const arrayNotes = sanitizeReleaseNotes([
+    { version: '0.3.1', note: '<p>Bug fix A</p>' },
+    { version: '0.3.0', note: '<p>Feature B</p>' },
+  ]);
+  assert.match(arrayNotes ?? '', /v0\.3\.1\nBug fix A/);
+  assert.match(arrayNotes ?? '', /v0\.3\.0\nFeature B/);
+
+  const longText = 'x'.repeat(5000);
+  const truncated = sanitizeReleaseNotes(longText);
+  assert.ok(truncated && truncated.length <= 4000);
+  assert.ok(truncated?.endsWith('…'));
+
+  assert.equal(sanitizeReleaseNotes('   '), undefined);
+  assert.equal(sanitizeReleaseNotes(null), undefined);
+});
+
+test('DesktopUpdaterController propagates releaseNotes and enforces minimum version policy', async () => {
+  const fake = createFakeAutoUpdater();
+  const controller = new DesktopUpdaterController({
+    currentVersion: '0.2.2',
+    isPackaged: true,
+    channel: 'stable',
+    loadAutoUpdater: async () => fake.updater,
+  });
+
+  const observed = [];
+  controller.subscribe(next => observed.push(next));
+
+  // Policy below or equal to current version is not mandatory.
+  const nonMandatory = controller.setMinimumVersionPolicy({
+    minRequiredVersion: '0.2.2',
+    reason: 'Ignored when version satisfies minimum',
+  });
+  assert.equal(nonMandatory.mandatory, undefined);
+  assert.equal(nonMandatory.minRequiredVersion, '0.2.2');
+  assert.equal(nonMandatory.mandatoryReason, undefined);
+
+  // Policy above current version flips mandatory=true and falls back to safe downloadUrl when untrusted.
+  const mandatoryState = controller.setMinimumVersionPolicy({
+    minRequiredVersion: '0.3.0',
+    reason: 'Security fix required for cloud auth.',
+    downloadUrl: 'https://evil.example.com/installer.dmg',
+  });
+  assert.equal(mandatoryState.mandatory, true);
+  assert.equal(mandatoryState.minRequiredVersion, '0.3.0');
+  assert.equal(mandatoryState.mandatoryReason, 'Security fix required for cloud auth.');
+  assert.equal(mandatoryState.downloadUrl, DEFAULT_DESKTOP_DOWNLOAD_URL);
+
+  // Allowed in-domain downloadUrl is preserved.
+  const customDownloadState = controller.setMinimumVersionPolicy({
+    minRequiredVersion: '0.3.0',
+    reason: 'Security fix required for cloud auth.',
+    downloadUrl: 'https://releases.open-design.ai/open-motion/desktop/stable',
+  });
+  assert.equal(
+    customDownloadState.downloadUrl,
+    'https://releases.open-design.ai/open-motion/desktop/stable',
+  );
+
+  // Native menu reflects urgent update requirement when mandatory.
+  const menuPresentation = resolveUpdaterMenuPresentation(customDownloadState, 'en');
+  assert.equal(menuPresentation.action, 'check');
+  assert.equal(menuPresentation.label, 'Update Required (v0.3.0)…');
+  const zhMenu = resolveUpdaterMenuPresentation(customDownloadState, 'zh-CN');
+  assert.equal(zhMenu.label, '需要更新 (v0.3.0)…');
+
+  // Feed update-available populates sanitized releaseNotes, and update-downloaded preserves them.
+  await controller.checkForUpdates();
+  fake.updater.emit('update-available', {
+    version: '0.3.0',
+    releaseNotes: '<ul><li>Auth hardening</li><li>Faster startup</li></ul>',
+    releaseNotesUrl: 'https://releases.open-design.ai/open-motion/desktop/stable/notes',
+  });
+  assert.equal(controller.getState().status, 'available');
+  assert.match(controller.getState().releaseNotes ?? '', /- Auth hardening/);
+  assert.equal(
+    controller.getState().releaseNotesUrl,
+    'https://releases.open-design.ai/open-motion/desktop/stable/notes',
+  );
+
+  fake.updater.emit('update-downloaded', { version: '0.3.0' });
+  assert.equal(controller.getState().status, 'downloaded');
+  assert.match(controller.getState().releaseNotes ?? '', /- Auth hardening/);
+  assert.equal(controller.getState().mandatory, true);
+
+  // If update-not-available fires later, releaseNotes clear while mandatory policy remains enforced.
+  fake.updater.emit('update-not-available');
+  assert.equal(controller.getState().status, 'up-to-date');
+  assert.equal(controller.getState().releaseNotes, undefined);
+  assert.equal(controller.getState().mandatory, true);
+  assert.equal(controller.getState().minRequiredVersion, '0.3.0');
+  assert.ok(observed.length > 0);
+});
+
+test('validateSignedConfigPayloadBounds validates minShellVersion, reason, and updateDownloadUrl', () => {
+  const validIssues = validateSignedConfigPayloadBounds({
+    minShellVersion: '0.3.0',
+    minShellVersionReason: 'Critical compatibility update',
+    updateDownloadUrl: 'https://releases.open-design.ai/open-motion/desktop/stable',
+  });
+  assert.deepEqual(validIssues, []);
+
+  const invalidIssues = validateSignedConfigPayloadBounds({
+    minShellVersion: 'not-a-semver',
+    minShellVersionReason: 'a'.repeat(501),
+    updateDownloadUrl: 'https://evil.example.com/download',
+  });
+  const paths = invalidIssues.map(i => i.path);
+  assert.ok(paths.includes('minShellVersion'));
+  assert.ok(paths.includes('minShellVersionReason'));
+  assert.ok(paths.includes('updateDownloadUrl'));
 });

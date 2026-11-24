@@ -8,7 +8,7 @@ import { Menu, MenuItem, MenuSeparator, MenuSubmenu, MenuRadioGroup, MenuRadioIt
 import { Tooltip } from '../components/ui/Tooltip';
 import { languages, useI18n, type Locale } from '../i18n/I18n';
 import { setStudioTheme, useStudioThemePreference } from '../utils/studioTheme';
-import { getDesktopHostBridge, isDesktopApp, startDesktopBrowserLogin, useDesktopChrome } from '../utils/platformHost';
+import { getDesktopHostBridge, isDesktopApp, startDesktopBrowserLogin, useDesktopChrome, useDesktopUpdateState } from '../utils/platformHost';
 import { HOST_CAPABILITIES } from '../../../shared/desktop-contract';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { buildLoginUrl, useAccountSummary } from './AccountSettings';
@@ -129,6 +129,18 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
     });
   }, [account]);
   const theme = useStudioThemePreference();
+  const desktopApp = isDesktopApp();
+  const updater = useDesktopUpdateState();
+  const updateState = desktopApp ? updater.state : null;
+  const hasPendingDesktopUpdate = Boolean(
+    updateState &&
+    (updateState.mandatory ||
+      updateState.status === 'downloaded' ||
+      updateState.status === 'available'),
+  );
+  const updateMenuVersion = updateState?.availableVersion
+    ? (/^v/i.test(updateState.availableVersion) ? updateState.availableVersion : `v${updateState.availableVersion}`)
+    : '';
   const userName = account?.user?.name?.trim() || account?.user?.email?.trim() || t('Account');
   const workspaceLabel = account?.activeWorkspace?.name;
   const isDevMode = account?.authMode === 'dev';
@@ -166,6 +178,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
         >
           <span className="om-avatar" aria-hidden="true">
             {signedIn ? avatarInitial : <><RemixIcon className="om-default-avatar-icon om-default-avatar-icon-outline" name="user-3-line" size={14} /><svg className="om-default-avatar-icon om-default-avatar-icon-solid" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 22H4V20C4 17.2386 6.23858 15 9 15H15C17.7614 15 20 17.2386 20 20V22ZM12 13C8.68629 13 6 10.3137 6 7C6 3.68629 8.68629 1 12 1C15.3137 1 18 3.68629 18 7C18 10.3137 15.3137 13 12 13Z" /></svg></>}
+            {hasPendingDesktopUpdate && <span className="om-desktop-update-dot" />}
           </span>
           {isDevMode && <span className="om-badge" data-active="true">{t('Dev')}</span>}
         </Button>
@@ -184,6 +197,31 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
             <span>{workspaceLabel}</span>
           </span>
         </MenuItem>
+      )}
+      {hasPendingDesktopUpdate && updateState && (
+        <>
+          <MenuSeparator />
+          <MenuItem
+            onClick={() => {
+              if (updateState.status === 'downloaded') {
+                void updater.installUpdateNow();
+              } else {
+                openSettings('about');
+              }
+            }}
+          >
+            <span className="om-menu-label">
+              <span className="om-desktop-update-menu-dot" aria-hidden="true" />
+              {updateState.status === 'downloaded'
+                ? updateMenuVersion
+                  ? t('Restart to update ({version})', { version: updateMenuVersion })
+                  : t('Restart and install update')
+                : updateMenuVersion
+                  ? t('Update available: {version}', { version: updateMenuVersion })
+                  : t('Update available')}
+            </span>
+          </MenuItem>
+        </>
       )}
       <MenuSeparator />
       <MenuItem onClick={() => openSettings('subscription')}>

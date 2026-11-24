@@ -39,6 +39,7 @@ import { setObservabilityContext } from '@openmotion/observability/browser';
 import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
+import { DesktopUpdatePrompt } from './DesktopUpdatePrompt';
 import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
@@ -550,6 +551,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   return <WorkspaceChromeContext.Provider value={value}>
     <StudioToastViewport {...navigationToast} />
     <StudioConnectionToast reconnecting={reconnecting} />
+    <DesktopUpdatePrompt />
     {archives.manager}
     <Dialog.Root open={sidebarOpen && narrow && editorActive} onOpenChange={setSidebarOpen}>
     <div ref={applicationRef} className="om-application" data-embedded={presentation.embedded} data-host-chrome={hostChrome} data-has-bf-banner={bfBannerVisible || undefined} data-navigation-collapsed={navigationCollapsed}>
