@@ -11,7 +11,7 @@ export const PREVIEW_CANVAS_DRAG = `
   function canvasBase(path, gesture) {
     if (sourceVersions[path]) return sourceVersions[path];
     const steps = pendingForSource(path);
-    const plainMove = step => !step.corner && !step.makeRelative;
+    const plainMove = step => !step.corner && (!step.makeRelative || step.element.childElementCount === 0);
     const canChain = (timingDocumentId && path === compositionPath) ||
       (settings.liveEdits?.position === true && plainMove(gesture) && steps.every(plainMove));
     const latest = canChain && steps.at(-1);
@@ -89,7 +89,7 @@ export const PREVIEW_CANVAS_DRAG = `
     const style = getComputedStyle(element);
     if (!canvasTargetVisible(element, style)) return null;
     const makeRelative = style.position === 'static';
-    if (!canvasBase(selection.sourceFile, {corner, makeRelative})) return { waitingForSource: true };
+    if (!canvasBase(selection.sourceFile, {corner, makeRelative, element})) return { waitingForSource: true };
     const properties = makeRelative ? ['left', 'top', 'position'] : ['left', 'top'];
     const width = parseFloat(style.width), height = parseFloat(style.height);
     if (corner) {
