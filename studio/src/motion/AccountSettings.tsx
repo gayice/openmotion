@@ -182,6 +182,44 @@ export function upgradePlan(account: CloudAccountSummary | null | undefined): 'f
   return plan === 'free' || plan === 'go' ? plan : undefined;
 }
 
+export type ResolutionTier = '1K' | '2K' | '4K';
+
+const RESOLUTION_RANK: Record<ResolutionTier, number> = { '1K': 1, '2K': 2, '4K': 4 };
+
+export function parseResolutionTier(value: unknown): ResolutionTier | undefined {
+  if (typeof value !== 'string') return undefined;
+  const upper = value.trim().toUpperCase();
+  if (upper === '1K' || upper === '2K' || upper === '4K') return upper;
+  return undefined;
+}
+
+export function imageResolutionCap(account: CloudAccountSummary | null | undefined, modelId?: string): ResolutionTier | undefined {
+  if (account?.state !== 'signed-in' || account.billingUnavailable) return undefined;
+  const plan = account.plan?.trim().toLowerCase();
+  if (!plan) return undefined;
+  if (plan === 'plus' || plan === 'go plus' || plan === 'go_plus') {
+    return modelId && /gpt[-_\s]?image[-_\s]?2\.0|gpt[-_\s]?2\.0/i.test(modelId) ? '2K' : '1K';
+  }
+  if (plan === 'pro' || plan === 'go pro' || plan === 'go_pro') return '2K';
+  if (plan === 'max' || plan === 'go max' || plan === 'go_max') return '4K';
+  return undefined;
+}
+
+export function exceedsResolutionCap(selectedResolution: unknown, cap: ResolutionTier | undefined): boolean {
+  if (!cap) return false;
+  const selected = parseResolutionTier(selectedResolution);
+  return Boolean(selected && RESOLUTION_RANK[selected] > RESOLUTION_RANK[cap]);
+}
+
+export function isInsufficientBalanceError(error: string | null | undefined): boolean {
+  if (!error) return false;
+  // Never show top-up CTA for rate limits, concurrency limits, timeouts, or 503/5xx outages.
+  if (/\b(429|503|502|504)\b|rate[\s_-]?limit|too many requests|concurrent|service unavailable|timed?\s?out/i.test(error)) {
+    return false;
+  }
+  return /\b402\b|insufficient[\s_-]?(balance|credit|credits|funds|quota)|low[\s_-]?balance|out of credits|not enough credits|余额不足|额度不足/i.test(error);
+}
+
 let cachedAccountSummary: CloudAccountSummary | null = null;
 
 export function useAccountSummary(options?: { eager?: boolean }) {

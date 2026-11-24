@@ -28,9 +28,9 @@ import { attachableReferenceLimit, creationModels } from './creationModels';
 import { isOpenDesignProvider, modelFamilyLabel, providerDisplayName } from './imageMenuModels';
 import { registeredProvider } from '../../../shared/provider-registry';
 import { ProviderSetupNotice } from './ProviderSetupNotice';
-import { upgradePlan, useAccountSummary } from './AccountSettings';
+import { exceedsResolutionCap, imageResolutionCap, upgradePlan, useAccountSummary } from './AccountSettings';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
-import { FreePlanGenerationGate } from './EntitlementTouchpointCards';
+import { FreePlanGenerationGate, ResolutionCapGenerationGate } from './EntitlementTouchpointCards';
 
 export interface AssetDraft { modality: Modality; prompt: string; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; references: { reference: AssetReference; name: string }[] }
 export function AssetComposer({ active, studio, draft, setDraft, promptAppliedToken = 0, jobs, showCurrentJob = true, taskId, history, selectingTask, onNew, onCancel, onView, onRetrySave, onResume, onReference, onUploadReference, onUploadFiles, uploadingReferences = false, onCreated, onError, onInfo, onClose }: {
@@ -317,9 +317,31 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
   const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
   const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
+  const activeResolution = parameters.values.resolution ?? draft.parameters?.resolution ?? selected?.defaults?.resolution;
+  const planResCap = isHostedSelected && !hostedPlanUpgrade && draft.modality === 'image'
+    ? imageResolutionCap(account, selected?.modelId)
+    : undefined;
+  const resolutionCapExceeded = (planResCap === '1K' || planResCap === '2K') && exceedsResolutionCap(activeResolution, planResCap);
+  const downgradeResolutionToCap = () => {
+    if (!parameterModel || !planResCap) return;
+    const nextDraft: ParameterDraft = {
+      ...parameters,
+      values: { ...parameters.values, resolution: planResCap },
+    };
+    setParameterDrafts(current => ({ ...current, [parameterKey]: nextDraft }));
+    try {
+      setDraft(current => ({
+        ...current,
+        model: parameterModel.id,
+        parameters: requestParameters(nextDraft, parameterModel, current.references.length > 0, activeDefaultValues),
+      }));
+    } catch { /* Keep draft values updated even if other parameters are being edited. */ }
+  };
   const entitlementGate = hostedPlanUpgrade
     ? <FreePlanGenerationGate onOpenProviders={cloudWeb ? undefined : openModelSettings} hookId="studio_free_gate" />
-    : null;
+    : resolutionCapExceeded
+      ? <ResolutionCapGenerationGate cap={planResCap} onDowngrade={downgradeResolutionToCap} hookId="studio_res_gate" />
+      : null;
   const setup = cloudGuestSubmit ? null : <>
       {unconfiguredPreferred && (imageWorkspace
         ? <ProviderSetupNotice message={t('{provider} needs setup before generating.', { provider: providerLabel })}>
@@ -356,7 +378,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   </Button> : !imageWorkspace && setupProvider ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary onClick={() => configureProvider(setupProvider)}>
     <RemixIcon name="plug-line" size={19} />{t('Set up to generate')}<RemixIcon name="arrow-right-line" size={18} />
   </Button> : <Button variant="plain" className="om-button om-creation-submit-button" data-primary
-    disabled={busy || uploadingReferences || !selected || !promptReady || invalidReferences} onClick={() => void submit()}>
+    disabled={busy || uploadingReferences || !selected || !promptReady || invalidReferences || Boolean(hostedPlanUpgrade) || resolutionCapExceeded} onClick={() => void submit()}>
     <RemixIcon name="sparkling-fill" size={19} />{t(busy ? 'Submitting your idea…' : featureRule?.actionLabel ?? kind.action)}
     <RemixIcon name="arrow-right-line" size={18} />
   </Button>;
