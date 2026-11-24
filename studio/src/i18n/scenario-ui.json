@@ -1004,7 +1004,14 @@
     "Full screen": "全屏",
     "One-click mode": "一键模式",
     "Make the full kit for this workflow: {idea}": "为这个工作流生成整套产出：{idea}",
-    "Make the full kit for this workflow": "为这个工作流生成整套产出"
+    "Make the full kit for this workflow": "为这个工作流生成整套产出",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "Super Agent 正在后台生成整套，做好一样就会显示一样。",
+    "Super Agent is waiting for you to approve a step.": "Super Agent 在等你确认一步操作。",
+    "Super Agent finished making the kit.": "Super Agent 已生成完整套。",
+    "Super Agent stopped before the kit was finished.": "Super Agent 中途停了，整套还没做完。",
+    "Review in Super Agent": "去 Super Agent 确认",
+    "See the process": "查看过程",
+    "Could not start Super Agent": "无法启动 Super Agent"
   },
   "ja": {
     "Supported formats \u00b7 {formats}": "対応形式 · {formats}",
@@ -2011,7 +2018,14 @@
     "Full screen": "全画面",
     "One-click mode": "ワンクリックモード",
     "Make the full kit for this workflow: {idea}": "このワークフローで一式を作成：{idea}",
-    "Make the full kit for this workflow": "このワークフローで一式を作成"
+    "Make the full kit for this workflow": "このワークフローで一式を作成",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "Super Agent がバックグラウンドで一式を作成中です。できたものから順に表示されます。",
+    "Super Agent is waiting for you to approve a step.": "Super Agent が操作の承認を待っています。",
+    "Super Agent finished making the kit.": "Super Agent が一式を作成しました。",
+    "Super Agent stopped before the kit was finished.": "Super Agent が途中で止まり、一式はまだ完成していません。",
+    "Review in Super Agent": "Super Agent で承認",
+    "See the process": "過程を見る",
+    "Could not start Super Agent": "Super Agent を開始できませんでした"
   },
   "ko": {
     "Supported formats \u00b7 {formats}": "지원 형식 · {formats}",
@@ -3018,7 +3032,14 @@
     "Full screen": "전체 화면",
     "One-click mode": "원클릭 모드",
     "Make the full kit for this workflow: {idea}": "이 워크플로로 한 세트 만들기: {idea}",
-    "Make the full kit for this workflow": "이 워크플로로 한 세트 만들기"
+    "Make the full kit for this workflow": "이 워크플로로 한 세트 만들기",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "Super Agent가 백그라운드에서 한 세트를 만드는 중입니다. 완성되는 대로 여기에 표시됩니다.",
+    "Super Agent is waiting for you to approve a step.": "Super Agent가 작업 승인을 기다리고 있습니다.",
+    "Super Agent finished making the kit.": "Super Agent가 한 세트를 완성했습니다.",
+    "Super Agent stopped before the kit was finished.": "Super Agent가 중간에 멈춰 세트가 아직 완성되지 않았습니다.",
+    "Review in Super Agent": "Super Agent에서 승인",
+    "See the process": "과정 보기",
+    "Could not start Super Agent": "Super Agent를 시작할 수 없습니다"
   },
   "de": {
     "Supported formats \u00b7 {formats}": "Unterstützte Formate · {formats}",
@@ -4025,7 +4046,14 @@
     "Full screen": "Vollbild",
     "One-click mode": "Ein-Klick-Modus",
     "Make the full kit for this workflow: {idea}": "Erstelle das ganze Kit für diesen Workflow: {idea}",
-    "Make the full kit for this workflow": "Erstelle das ganze Kit für diesen Workflow"
+    "Make the full kit for this workflow": "Erstelle das ganze Kit für diesen Workflow",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "Super Agent erstellt das Set im Hintergrund. Jedes Ergebnis erscheint hier, sobald es fertig ist.",
+    "Super Agent is waiting for you to approve a step.": "Super Agent wartet auf deine Freigabe für einen Schritt.",
+    "Super Agent finished making the kit.": "Super Agent hat das Set fertiggestellt.",
+    "Super Agent stopped before the kit was finished.": "Super Agent hat angehalten, bevor das Set fertig war.",
+    "Review in Super Agent": "In Super Agent freigeben",
+    "See the process": "Ablauf ansehen",
+    "Could not start Super Agent": "Super Agent konnte nicht gestartet werden"
   },
   "fr": {
     "Supported formats \u00b7 {formats}": "Formats pris en charge · {formats}",
@@ -5032,7 +5060,14 @@
     "Full screen": "Plein écran",
     "One-click mode": "Mode en un clic",
     "Make the full kit for this workflow: {idea}": "Crée le kit complet pour ce workflow : {idea}",
-    "Make the full kit for this workflow": "Crée le kit complet pour ce workflow"
+    "Make the full kit for this workflow": "Crée le kit complet pour ce workflow",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "Super Agent crée le kit en arrière-plan. Chaque résultat apparaît ici dès qu’il est prêt.",
+    "Super Agent is waiting for you to approve a step.": "Super Agent attend que vous approuviez une étape.",
+    "Super Agent finished making the kit.": "Super Agent a terminé le kit.",
+    "Super Agent stopped before the kit was finished.": "Super Agent s’est arrêté avant la fin du kit.",
+    "Review in Super Agent": "Approuver dans Super Agent",
+    "See the process": "Voir le déroulé",
+    "Could not start Super Agent": "Impossible de démarrer Super Agent"
   },
   "ru": {
     "Supported formats \u00b7 {formats}": "Поддерживаемые форматы · {formats}",
@@ -6039,7 +6074,14 @@
     "Full screen": "Полный экран",
     "One-click mode": "Режим в один клик",
     "Make the full kit for this workflow: {idea}": "Создай весь набор для этого процесса: {idea}",
-    "Make the full kit for this workflow": "Создай весь набор для этого процесса"
+    "Make the full kit for this workflow": "Создай весь набор для этого процесса",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "Super Agent создаёт набор в фоне. Каждый результат появится здесь, как только будет готов.",
+    "Super Agent is waiting for you to approve a step.": "Super Agent ждёт вашего подтверждения шага.",
+    "Super Agent finished making the kit.": "Super Agent закончил набор.",
+    "Super Agent stopped before the kit was finished.": "Super Agent остановился, не закончив набор.",
+    "Review in Super Agent": "Подтвердить в Super Agent",
+    "See the process": "Посмотреть процесс",
+    "Could not start Super Agent": "Не удалось запустить Super Agent"
   },
   "es": {
     "Supported formats \u00b7 {formats}": "Formatos compatibles · {formats}",
@@ -7046,7 +7088,14 @@
     "Full screen": "Pantalla completa",
     "One-click mode": "Modo de un clic",
     "Make the full kit for this workflow: {idea}": "Crea el kit completo de este flujo: {idea}",
-    "Make the full kit for this workflow": "Crea el kit completo de este flujo"
+    "Make the full kit for this workflow": "Crea el kit completo de este flujo",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "Super Agent está creando el kit en segundo plano. Cada resultado aparece aquí en cuanto está listo.",
+    "Super Agent is waiting for you to approve a step.": "Super Agent espera que apruebes un paso.",
+    "Super Agent finished making the kit.": "Super Agent terminó el kit.",
+    "Super Agent stopped before the kit was finished.": "Super Agent se detuvo antes de terminar el kit.",
+    "Review in Super Agent": "Aprobar en Super Agent",
+    "See the process": "Ver el proceso",
+    "Could not start Super Agent": "No se pudo iniciar Super Agent"
   },
   "pt-BR": {
     "Supported formats \u00b7 {formats}": "Formatos compatíveis · {formats}",
@@ -8053,7 +8102,14 @@
     "Full screen": "Tela cheia",
     "One-click mode": "Modo de um clique",
     "Make the full kit for this workflow: {idea}": "Crie o kit completo deste fluxo: {idea}",
-    "Make the full kit for this workflow": "Crie o kit completo deste fluxo"
+    "Make the full kit for this workflow": "Crie o kit completo deste fluxo",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "O Super Agent está criando o kit em segundo plano. Cada resultado aparece aqui assim que fica pronto.",
+    "Super Agent is waiting for you to approve a step.": "O Super Agent está esperando você aprovar uma etapa.",
+    "Super Agent finished making the kit.": "O Super Agent terminou o kit.",
+    "Super Agent stopped before the kit was finished.": "O Super Agent parou antes de terminar o kit.",
+    "Review in Super Agent": "Aprovar no Super Agent",
+    "See the process": "Ver o processo",
+    "Could not start Super Agent": "Não foi possível iniciar o Super Agent"
   },
   "it": {
     "Supported formats \u00b7 {formats}": "Formati supportati · {formats}",
@@ -9060,7 +9116,14 @@
     "Full screen": "Schermo intero",
     "One-click mode": "Modalità un clic",
     "Make the full kit for this workflow: {idea}": "Crea il kit completo per questo flusso: {idea}",
-    "Make the full kit for this workflow": "Crea il kit completo per questo flusso"
+    "Make the full kit for this workflow": "Crea il kit completo per questo flusso",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "Super Agent sta creando il kit in background. Ogni risultato appare qui appena è pronto.",
+    "Super Agent is waiting for you to approve a step.": "Super Agent attende la tua approvazione per un passaggio.",
+    "Super Agent finished making the kit.": "Super Agent ha completato il kit.",
+    "Super Agent stopped before the kit was finished.": "Super Agent si è fermato prima di completare il kit.",
+    "Review in Super Agent": "Approva in Super Agent",
+    "See the process": "Vedi il processo",
+    "Could not start Super Agent": "Impossibile avviare Super Agent"
   },
   "tr": {
     "Supported formats \u00b7 {formats}": "Desteklenen biçimler · {formats}",
@@ -10067,6 +10130,13 @@
     "Full screen": "Tam ekran",
     "One-click mode": "Tek tık modu",
     "Make the full kit for this workflow: {idea}": "Bu iş akışı için tüm kiti oluştur: {idea}",
-    "Make the full kit for this workflow": "Bu iş akışı için tüm kiti oluştur"
+    "Make the full kit for this workflow": "Bu iş akışı için tüm kiti oluştur",
+    "Super Agent is making the kit in the background. Each output appears here as soon as it is ready.": "Super Agent seti arka planda hazırlıyor. Her çıktı hazır olur olmaz burada görünür.",
+    "Super Agent is waiting for you to approve a step.": "Super Agent bir adımı onaylamanızı bekliyor.",
+    "Super Agent finished making the kit.": "Super Agent seti tamamladı.",
+    "Super Agent stopped before the kit was finished.": "Super Agent set bitmeden durdu.",
+    "Review in Super Agent": "Super Agent’ta onayla",
+    "See the process": "Süreci gör",
+    "Could not start Super Agent": "Super Agent başlatılamadı"
   }
 }

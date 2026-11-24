@@ -4446,6 +4446,23 @@
   flex: 1 1 200px;
 }
 
+.om-studio-handoff[data-agent-task='failed'],
+.om-studio-handoff[data-agent-task='cancelled'] {
+  background: var(--motion-panel);
+}
+
+.om-studio-handoff-spin {
+  animation: om-studio-handoff-spin 1s linear infinite;
+}
+
+@keyframes om-studio-handoff-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .om-studio-handoff-spin { animation: none; }
+}
+
 .om-studio-outputs header {
   display: flex;
   align-items: center;

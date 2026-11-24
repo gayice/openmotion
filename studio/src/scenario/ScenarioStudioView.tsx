@@ -8,6 +8,7 @@ import type { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { uploadLibraryAsset } from '../motion/assetClient';
+import { getSuperAgentChat, subscribeSuperAgentChat } from '../super-agent/superAgentClient';
 import type { PoolExportOptions } from './AssetPoolPanel';
 import { designPreviewUrlForPoolItem, PoolItemPreviewDialog, PoolThumb } from './PoolItemPreview';
 import { assetMediaUrl } from '../../../shared/asset-library';
@@ -59,8 +60,13 @@ export type ScenarioStudioViewProps = {
   onOpenDesignProject(id: string): void;
   onOpenMotionProject(id: string): Promise<boolean>;
   onCopyAgentPrompt(customPrompt?: string): Promise<boolean>;
-  /** When Super Agent is available, Make the full kit runs there instead of copying the prompt. */
-  onRunInSuperAgent?(idea?: string): Promise<boolean>;
+  /**
+   * When Super Agent is available, Make the full kit runs there in the background
+   * instead of copying the prompt. Resolves the chat and run ids, or null when it did not start.
+   */
+  onRunInSuperAgent?(idea?: string): Promise<{ chatId: string; runId: string | null } | null>;
+  /** Opens the Super Agent conversation that is making the kit. */
+  onOpenAgentChat?(chatId: string): void;
   onExportBundle(options?: PoolExportOptions): Promise<ScenarioBundleReceipt | null>;
   exportingBundle: boolean;
   onSwitchToManual(): void;
@@ -92,6 +98,40 @@ export function deliverableState(state: ScenarioStepState | undefined): Delivera
   return 'waiting';
 }
 
+type AgentTask = { chatId: string; runId: string | null; state: 'idle' | 'running' | 'waiting' | 'failed' | 'cancelled' };
+const AGENT_POLL_MS = 4000;
+/** A chat that cannot be read this many times in a row is treated as stopped, so the button comes back. */
+const AGENT_READ_ATTEMPTS = 3;
+const AGENT_RETRY_MS = 10_000;
+const AGENT_TASK_KEY = 'om-studio-agent-task:';
+const agentTaskMessages: Record<AgentTask['state'], string> = {
+  running: 'Super Agent is making the kit in the background. Each output appears here as soon as it is ready.',
+  waiting: 'Super Agent is waiting for you to approve a step.',
+  idle: 'Super Agent finished making the kit.',
+  failed: 'Super Agent stopped before the kit was finished.',
+  cancelled: 'Super Agent stopped before the kit was finished.',
+};
+function readAgentTask(runId: string | undefined | null): AgentTask | null {
+  if (!runId) return null;
+  try {
+    const value = JSON.parse(window.localStorage.getItem(AGENT_TASK_KEY + runId) ?? 'null');
+    return value && typeof value.chatId === 'string' && typeof value.state === 'string' ? { ...value, runId } as AgentTask : null;
+  } catch {
+    return null;
+  }
+}
+function chatTime(value: unknown): number {
+  return typeof value === 'number' ? value : Date.parse(String(value)) || 0;
+}
+function writeAgentTask(runId: string | null, task: AgentTask): void {
+  if (!runId) return;
+  try { window.localStorage.setItem(AGENT_TASK_KEY + runId, JSON.stringify(task)); } catch { /* remembered for this page only */ }
+}
+/** While a background Agent works, a chosen deliverable it has not reached yet reads as in the making. */
+function shownState(state: ScenarioStepState | undefined, pending: boolean | undefined): DeliverableState {
+  const status = deliverableState(state);
+  return pending && status === 'waiting' ? 'making' : status;
+}
 const stateLabels: Record<DeliverableState, string> = { waiting: 'Not started', making: 'In the making', ready: 'Ready', failed: 'Needs a retry', skipped: 'Not this time' };
 
 /** Status to restore when a deliverable is chosen again: keep a finished output, otherwise start over. */
@@ -192,7 +232,7 @@ function AudioCover({ item, image, large = false }: { item: PoolItem; image: str
 }
 
 /** A deliverable tab: the top row switches which output is shown below. */
-function DeliverableTab({ step, state, cover, audioImage, example, selected, onSelect }: {
+function DeliverableTab({ step, state, cover, audioImage, example, selected, onSelect, pending }: {
   step: ScenarioStepDefinition;
   audioImage: string | null;
   state: ScenarioStepState | undefined;
@@ -200,9 +240,11 @@ function DeliverableTab({ step, state, cover, audioImage, example, selected, onS
   example: string | undefined;
   selected: boolean;
   onSelect(): void;
+  /** A background Agent is making the kit: a deliverable not started yet reads as in the making. */
+  pending?: boolean;
 }) {
   const { t } = useI18n();
-  const status = deliverableState(state);
+  const status = shownState(state, pending);
   return (
     <Button variant="plain" role="tab" aria-selected={selected} className="om-studio-output" data-studio-output={step.id}
       data-output-state={status} onClick={onSelect}>
@@ -223,7 +265,7 @@ function DeliverableTab({ step, state, cover, audioImage, example, selected, onS
 }
 
 export function ScenarioStudioView({
-  scenario, run, api, toast, poolItems, onAddPoolItems, onRemovePoolItem, onRegisterFlush, onOpenDesignProject, onOpenMotionProject, onCopyAgentPrompt, onRunInSuperAgent, onExportBundle, exportingBundle, onSwitchToManual, onOpenMcp,
+  scenario, run, api, toast, poolItems, onAddPoolItems, onRemovePoolItem, onRegisterFlush, onOpenDesignProject, onOpenMotionProject, onCopyAgentPrompt, onRunInSuperAgent, onOpenAgentChat, onExportBundle, exportingBundle, onSwitchToManual, onOpenMcp,
 }: ScenarioStudioViewProps) {
   const { t, locale } = useI18n();
   const studio = scenarioStudio(scenario.id);
@@ -250,6 +292,8 @@ export function ScenarioStudioView({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [making, setMaking] = useState(false);
   const [handedOffAt, setHandedOffAt] = useState<number | null>(null);
+  // The Super Agent chat making this run's kit in the background, remembered per run in this browser.
+  const [agentTask, setAgentTask] = useState<AgentTask | null>(() => readAgentTask(run?.id));
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -266,6 +310,7 @@ export function ScenarioStudioView({
     latest.current = reset;
     setValues(reset);
     setHandedOffAt(null);
+    setAgentTask(readAgentTask(run.id));
     if (usesProduct) setProduct(productFor(run.brief));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fieldIds, run]);
@@ -324,6 +369,59 @@ export function ScenarioStudioView({
     }, HANDOFF_POLL_MS);
     return () => clearInterval(id);
   }, [api, handedOffAt]);
+
+  // Follow the background Super Agent chat; while it works, pick up each output it saves back.
+  const agentChatId = agentTask?.chatId ?? null;
+  const agentWorking = agentTask?.state === 'running' || agentTask?.state === 'waiting';
+  useEffect(() => {
+    if (!agentChatId) return;
+    let cancelled = false;
+    // The newest chat snapshot wins, so a slow read never undoes a later live update.
+    let latestAt = -Infinity;
+    let failures = 0;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const show = (state: AgentTask['state']) => {
+      setAgentTask(previous => {
+        if (!previous || previous.chatId !== agentChatId || previous.state === state) return previous;
+        const next = { ...previous, state };
+        writeAgentTask(next.runId, next);
+        return next;
+      });
+    };
+    const apply = (state: AgentTask['state'], updatedAt: number) => {
+      if (cancelled || updatedAt < latestAt) return;
+      latestAt = updatedAt;
+      failures = 0;
+      show(state);
+      // The last outputs land as the chat finishes, so read the run once more.
+      if (state !== 'running' && state !== 'waiting') void api.refresh().catch(() => {});
+    };
+    const read = () => {
+      if (retry) { clearTimeout(retry); retry = null; }
+      void getSuperAgentChat(agentChatId, { fresh: true })
+        .then(result => apply(result.conversation.state, chatTime(result.conversation.updatedAt)))
+        .catch(() => {
+          if (cancelled) return;
+          failures += 1;
+          // A deleted or unreachable chat must not keep the button disabled for good.
+          // Only the page shows it as stopped; reads keep going so a real snapshot can still win.
+          if (failures === AGENT_READ_ATTEMPTS) show('failed');
+          retry = setTimeout(read, failures >= AGENT_READ_ATTEMPTS ? AGENT_RETRY_MS * 3 : AGENT_RETRY_MS);
+        });
+    };
+    read();
+    const unsubscribe = subscribeSuperAgentChat(
+      agentChatId,
+      chat => apply(chat.state, chatTime(chat.updatedAt)),
+      () => { if (!cancelled && !retry) retry = setTimeout(read, AGENT_RETRY_MS); },
+    );
+    return () => { cancelled = true; if (retry) clearTimeout(retry); unsubscribe(); };
+  }, [agentChatId, api]);
+  useEffect(() => {
+    if (!agentWorking) return;
+    const id = setInterval(() => void api.refresh().catch(() => {}), AGENT_POLL_MS);
+    return () => clearInterval(id);
+  }, [agentWorking, api]);
 
   // Deliverables people chose for this run; an unticked one is saved on the run as skipped.
   const chosen = deliverables.filter(step => run?.steps[step.id]?.status !== 'skipped');
@@ -416,7 +514,7 @@ export function ScenarioStudioView({
   const readyCount = chosen.filter(step => deliverableState(run?.steps[step.id]) === 'ready').length;
 
   const makeKit = async () => {
-    if (making) return;
+    if (making || agentWorking) return;
     if (usesProduct && !(values.productName ?? '').trim()) {
       toast.showToast(t('Choose or add a product first'), 'error', 'feedback');
       return;
@@ -434,7 +532,16 @@ export function ScenarioStudioView({
         return;
       }
       if (onRunInSuperAgent) {
-        await onRunInSuperAgent(latest.current.idea);
+        const started = await onRunInSuperAgent(latest.current.idea);
+        if (started) {
+          const task: AgentTask = { chatId: started.chatId, runId: started.runId, state: 'running' };
+          writeAgentTask(task.runId, task);
+          // People may have switched drafts while it started; only this run's page follows the chat.
+          if (!runIdRef.current || !task.runId || runIdRef.current === task.runId) {
+            setAgentTask(task);
+            setHandedOffAt(null);
+          }
+        }
         return;
       }
       if (await onCopyAgentPrompt(latest.current.idea)) setHandedOffAt(Date.now());
@@ -551,9 +658,17 @@ export function ScenarioStudioView({
             );
           })}
         </fieldset>
-        <Button variant="primary" className="om-studio-make" icon={<RemixIcon name="sparkling-line" size={16} />} disabled={making || toggling !== null} onClick={() => void makeKit()}>
+        <Button variant="primary" className="om-studio-make" icon={<RemixIcon name="sparkling-line" size={16} />} disabled={making || agentWorking || toggling !== null} onClick={() => void makeKit()}>
           {t('Make the full kit')}
         </Button>
+        {agentTask && <div className="om-studio-handoff" role="status" data-agent-task={agentTask.state}>
+          <RemixIcon name={agentTask.state === 'running' ? 'loader-4-line' : agentTask.state === 'waiting' ? 'question-line' : agentTask.state === 'idle' ? 'checkbox-circle-line' : 'error-warning-line'}
+            size={16} aria-hidden="true" className={agentTask.state === 'running' ? 'om-studio-handoff-spin' : undefined} />
+          <span>{t(agentTaskMessages[agentTask.state])}</span>
+          {onOpenAgentChat && <Button variant="plain" size="sm" onClick={() => onOpenAgentChat(agentTask.chatId)}>
+            {t(agentTask.state === 'waiting' ? 'Review in Super Agent' : 'See the process')}
+          </Button>}
+        </div>}
         {handedOffAt !== null && <div className="om-studio-handoff" role="status">
           <RemixIcon name="checkbox-circle-line" size={16} aria-hidden="true" />
           <span>{t('Copied. Paste it into your connected Agent and the kit fills in below as it is made.')}</span>
@@ -600,13 +715,14 @@ export function ScenarioStudioView({
             const first = made.items[0] ?? made.posts.flatMap(post => post.mediaPoolItemIds).map(id => poolById.get(id)).find((item): item is PoolItem => Boolean(item));
             return (
               <DeliverableTab key={step.id} step={step} state={run?.steps[step.id]} example={examples.get(step.id)}
-                cover={first ? { item: first, run } : null} audioImage={audioImage} selected={step.id === shownStep?.id} onSelect={() => setShownStepId(step.id)} />
+                cover={first ? { item: first, run } : null} audioImage={audioImage} selected={step.id === shownStep?.id} onSelect={() => setShownStepId(step.id)}
+                pending={agentWorking} />
             );
           })}
         </div>
         {shownStep && (() => {
           const state = run?.steps[shownStep.id];
-          const status = deliverableState(state);
+          const status = shownState(state, agentWorking);
           const { items, posts, scripts } = stepOutputs(shownStep, state, run, poolById);
           const empty = !items.length && !posts.length && !scripts.length;
           return (

@@ -38,6 +38,7 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { useIntegrationInfo } from '../motion/useIntegrationInfo';
 import { useOptionalWorkspaceChrome } from '../motion/WorkspaceChromeContext';
 import { buildSuperAgentHandoff } from '../../../shared/capability-hub';
+import { startBackgroundSuperAgentTask } from '../super-agent/backgroundSuperAgentTask';
 import { ScenarioStudioView } from './ScenarioStudioView';
 import { ScenarioAgentModeView } from './ScenarioAgentModeView';
 import { AssetPoolPanel, type PoolPickRequest } from './AssetPoolPanel';
@@ -638,14 +639,14 @@ export function ScenarioWorkspace({
 
   const chrome = useOptionalWorkspaceChrome();
   /**
-   * Make the full kit in Super Agent: a new chat that starts right away, with the
-   * workflow attached and the full run instructions passed behind the scenes.
-   * Without Super Agent (an external Agent host), the prompt is copied instead.
+   * Make the full kit with Super Agent in the background: a new chat starts right
+   * away with the workflow attached and the full run instructions passed behind the
+   * scenes, while people stay on this page and watch the outputs fill in.
+   * Resolves the chat and run ids, or null when nothing started in the background (no local
+   * Agent can run, so Super Agent opens to set one up, or the start failed).
    */
   const handleRunInSuperAgent = useCallback(
-    async (idea?: string) => {
-      const openInSuperAgent = chrome?.openInSuperAgent;
-      if (!openInSuperAgent) return handleCopyAgentPrompt(idea);
+    async (idea?: string): Promise<{ chatId: string; runId: string | null } | null> => {
       let ensuredRun: ScenarioRun | null = null;
       try {
         ensuredRun = await ensureRun();
@@ -654,7 +655,7 @@ export function ScenarioWorkspace({
       }
       const instructions = scenarioConcisePrompt(scenario, ensuredRun, { locale, integration });
       const visible = (idea ?? '').trim();
-      openInSuperAgent(buildSuperAgentHandoff(
+      const payload = buildSuperAgentHandoff(
         { kind: 'workflow', id: scenario.id, title: t(scenario.title), subtitle: t(scenario.subtitle), category: scenario.category, ...(ensuredRun ? { runId: ensuredRun.id } : {}) },
         {
           prompt: visible
@@ -665,12 +666,19 @@ export function ScenarioWorkspace({
           autoSend: true,
           newChat: true,
         },
-      ));
-      return true;
+      );
+      try {
+        const started = await startBackgroundSuperAgentTask({ ...payload, title: t(scenario.title) });
+        if (started.ok) return { chatId: started.chat.id, runId: ensuredRun?.id ?? null };
+        chrome?.openInSuperAgent?.(payload);
+        return null;
+      } catch (error) {
+        toast.showToast(error instanceof Error && error.message ? error.message : t('Could not start Super Agent'), 'error', 'feedback');
+        return null;
+      }
     },
-    [chrome, handleCopyAgentPrompt, ensureRun, integration, locale, run, scenario, t],
+    [chrome, ensureRun, integration, locale, run, scenario, t, toast],
   );
-
 
   const handleCopyAgentHandoff = useCallback(
     () => handleCopyAgentPrompt(),
@@ -1212,6 +1220,7 @@ export function ScenarioWorkspace({
               onOpenMotionProject={onOpenMotionProject}
               onCopyAgentPrompt={handleCopyAgentPrompt}
               onRunInSuperAgent={chrome?.openInSuperAgent ? handleRunInSuperAgent : undefined}
+              onOpenAgentChat={chrome?.openSuperAgentChat}
               onExportBundle={handleExportBundle}
               exportingBundle={exportingBundle}
               onSwitchToManual={() => handleModeChange('manual')}
