@@ -150,6 +150,44 @@ describe("external file change coordinator", () => {
     expect(options.reloadPreview).toHaveBeenCalledExactlyOnceWith("index.html");
   });
 
+  it("still updates the intro when an overlapping outro update finishes in place", async () => {
+    let finishIntro!: (applied: boolean) => void;
+    const intro = new Promise<boolean>(resolve => { finishIntro = resolve; });
+    const { options } = await mountCoordinator({
+      refreshFileViews: vi.fn().mockReturnValueOnce(intro).mockResolvedValueOnce(true),
+    });
+    await act(async () => handler?.({ path: "intro.html" }));
+    await act(async () => handler?.({ path: "outro.html" }));
+    await act(async () => finishIntro(false));
+    expect(options.reloadPreview).toHaveBeenCalledExactlyOnceWith("intro.html");
+  });
+
+  it("covers both pending files with one fallback when one update rejects", async () => {
+    let failIntro!: (error: Error) => void;
+    let finishOutro!: (applied: boolean) => void;
+    const { options } = await mountCoordinator({
+      refreshFileViews: vi.fn()
+        .mockReturnValueOnce(new Promise<boolean>((_, reject) => { failIntro = reject; }))
+        .mockReturnValueOnce(new Promise<boolean>(resolve => { finishOutro = resolve; })),
+    });
+    await act(async () => handler?.({ path: "intro.html" }));
+    await act(async () => handler?.({ path: "outro.html" }));
+    await act(async () => failIntro(new Error("source read failed")));
+    await act(async () => finishOutro(false));
+    expect(options.reloadPreview).toHaveBeenCalledExactlyOnceWith(["intro.html", "outro.html"]);
+  });
+
+  it("ignores an unsettled preview update after switching projects", async () => {
+    let finish!: (applied: boolean) => void;
+    const { options, rerender } = await mountCoordinator({
+      refreshFileViews: () => new Promise<boolean>(resolve => { finish = resolve; }),
+    });
+    await act(async () => handler?.({ path: "intro.html" }));
+    await rerender({ projectId: "project-b" });
+    await act(async () => finish(false));
+    expect(options.reloadPreview).not.toHaveBeenCalled();
+  });
+
   describe("SSE reconnect recovery", () => {
     let source: EventTarget;
     let close: ReturnType<typeof vi.fn>;

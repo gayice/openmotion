@@ -19,6 +19,7 @@ import { onRebasedFileEdit } from "../utils/rebasedFileEdit";
 import { consumeStudioWriteToken, invalidateLatestSourceWrite, isLatestSourceWrite } from "../utils/studioFileVersion";
 import { useCloudDisklessMode } from "../utils/cloudRuntime";
 import { logReload } from "../utils/reloadDebug";
+import { ExternalPreviewUpdates } from "./externalPreviewUpdates";
 import { notifyProjectActivity } from "../motion/workspaceRefresh";
 import {
   emitMediaDerived,
@@ -57,7 +58,7 @@ interface ExternalFileChangeCoordinatorOptions {
   drainPendingChanges: () => Promise<ExternalChangeDrainResult>;
   getPendingCandidate?: () => { path: string; content: string } | null;
   discardPendingChanges: () => void;
-  reloadPreview: (path?: string) => void;
+  reloadPreview: (path?: string | readonly string[]) => void;
   /** Accept synchronously after capturing the displayed source and before opening the next revision. */
   refreshFileViews: (payload: unknown, acceptChange: (unaffectedPreview?: string) => void) => Promise<boolean> | "unaffected" | void;
   persistConflictSnapshot: (projectId: string, conflict: StudioFileConflictError) => Promise<void>;
@@ -245,7 +246,7 @@ export function useExternalFileChangeCoordinator({
   const useHotChannel = !cloud && Boolean(import.meta.hot || testHotAdapter());
   const [blocked, setBlockedState] = useState<ExternalFileChangeBlockedState | null>(null);
   const generationRef = useRef(0);
-  const previewGeneration = useRef(0);
+  const [previewUpdates] = useState(() => new ExternalPreviewUpdates());
   const mountedRef = useRef(true);
   const lastEventIdentityRef = useRef<string | null>(null);
   const blockedRef = useRef<ExternalFileChangeBlockedState | null>(null);
@@ -278,9 +279,9 @@ export function useExternalFileChangeCoordinator({
   useEffect(() => {
     generationRef.current += 1;
     setBlocked(null);
-    previewGeneration.current++;
     lastEventIdentityRef.current = null;
-  }, [projectId, activeCompPath, setBlocked]);
+    return () => previewUpdates.clear();
+  }, [projectId, activeCompPath, setBlocked, previewUpdates]);
 
   useEffect(() => {
     if (!projectId || !recoveryFilePath || !loadConflictSnapshot) return;
@@ -346,14 +347,7 @@ export function useExternalFileChangeCoordinator({
         path,
         by: "external-change coordinator",
       });
-      if (affectsPreview) {
-        const ticket = ++previewGeneration.current;
-        if (inPlace) {
-          void inPlace.catch(() => false).then(applied => {
-            if (!applied && mountedRef.current && previewGeneration.current === ticket) reloadPreview(path);
-          });
-        } else reloadPreview(path);
-      }
+      if (affectsPreview) previewUpdates.track(changedPaths, inPlace, reloadPreview);
       // Fire-and-forget: a failed refresh leaves the tree as stale as it was,
       // which is the status quo this exists to improve on, not a new failure
       // mode to surface. The `absent`-triggered fallback in useSdkSession
@@ -361,7 +355,7 @@ export function useExternalFileChangeCoordinator({
       // a watcher event the SSE never delivered).
       if (readFileTreeChanged(owed)) void refreshFileTree?.();
     },
-    [projectId, onAcceptedPersistedFileChange, reloadPreview, refreshFileViews, refreshFileTree],
+    [projectId, onAcceptedPersistedFileChange, previewUpdates, reloadPreview, refreshFileViews, refreshFileTree],
   );
 
   const persistSnapshotInOrder = useCallback(async (write: () => Promise<void>) => {
