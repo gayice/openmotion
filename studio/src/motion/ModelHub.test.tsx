@@ -118,6 +118,11 @@ it('localizes Seedance 2.5 and GPT Image 2.6 hubs across all 10 non-English loca
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
     for (const locale of ['zh-CN', 'ja', 'ko', 'de', 'fr', 'ru', 'es', 'pt-BR', 'it', 'tr'] as const) {
       const messages = modelHubUi[locale] as Record<string, string>;
+      for (const hubId of ['seedance-2-5', 'gpt-image-2-6']) {
+        for (const example of findModelHub(hubId)!.cases!) {
+          expect(messages[example.prompt], `${locale}: ${example.title}`).toBeTruthy();
+        }
+      }
       container = document.createElement('div'); document.body.append(container);
       root = createRoot(container);
       await act(async () => root!.render(
@@ -130,6 +135,8 @@ it('localizes Seedance 2.5 and GPT Image 2.6 hubs across all 10 non-English loca
       expect(container.textContent, locale).toContain(messages['Pastel Horizon Walk']);
       await act(async () => container.querySelector<HTMLElement>('.om-hub-showcase-card')!.click());
       expect(document.querySelector('.om-hub-lightbox-cta')!.textContent, locale).toContain(messages['Remix this look']);
+      expect(document.querySelector<HTMLTextAreaElement>('.om-hub-lightbox textarea')!.value, locale)
+        .toBe(messages[findModelHub('seedance-2-5')!.cases![0].prompt]);
       act(() => root!.unmount());
       root = undefined;
       container.remove();

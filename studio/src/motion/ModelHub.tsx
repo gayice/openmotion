@@ -265,7 +265,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
   const filteredCases: HubShowcaseCase[] = (hub.cases ?? []).filter(item => {
     if (isShowcaseHub && selectedTag !== 'all' && item.tag !== selectedTag) return false;
     if (!normalizedQuery) return true;
-    return [item.title, item.titleZh, item.tag, item.tagZh, item.prompt, item.promptZh]
+    return [item.title, t(item.title), item.tag, t(item.tag), item.prompt, t(item.prompt)]
       .some(field => field.toLowerCase().includes(normalizedQuery));
   });
 
@@ -454,7 +454,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
             if (!text) return;
             try {
               await navigator.clipboard.writeText(text);
-              toast.showToast(t('Copied to clipboard'), 'info', 'feedback');
+              toast.showToast(t('Copied'), 'info', 'feedback');
             } catch {
               toast.showToast(t('Could not copy. Select and copy the text manually.'), 'error', 'feedback');
             }
