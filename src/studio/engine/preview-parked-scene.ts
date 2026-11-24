@@ -30,7 +30,9 @@ export const PREVIEW_PARKED_SCENE = `
     if (!current()) return false;
 
     const signal = AbortSignal.timeout(Math.min(5000, expiresAt - Date.now()));
-    const response = await fetch(location.href, { cache: 'no-cache', redirect: 'error', signal });
+    const url = new URL(location.href);
+    url.searchParams.set('sceneFile', path);
+    const response = await fetch(url.href, { cache: 'no-cache', redirect: 'error', signal });
     if (!response.ok) return false;
     const html = await response.text();
     const next = new DOMParser().parseFromString(html, 'text/html');
