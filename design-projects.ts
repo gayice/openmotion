@@ -1510,6 +1510,9 @@ export class DesignProjects {
       const browser = await launching.catch(() => null);
       if (!browser?.connected) this.commentPreviewBrowser = undefined;
       if (error instanceof DesignError) throw error;
+      if (process.env.GITHUB_ACTIONS === 'true' && process.env.NODE_TEST_CONTEXT) {
+        console.error('Comment preview render failed:', error);
+      }
       throw new DesignError('UNSUPPORTED', 'Comment preview could not be rendered');
     }
   }
