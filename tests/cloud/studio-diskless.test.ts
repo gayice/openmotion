@@ -1818,6 +1818,56 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
 
   });
 
+  it('serves one compiled scene with whole-film validators while sharing builds across scenes and leases', async t => {
+    const env = createStudioTestEnv();
+    const paths = ['compositions/intro.html', 'compositions/outro.html'];
+    const index = '<html><body><main data-composition-id="main" data-duration="4">' +
+      paths.map((file, i) => `<div data-composition-id="scene-${i}" data-composition-src="${file}" data-start="${i * 2}" data-duration="2"></div>`).join('') +
+      '</main></body></html>';
+    const {projectId} = await env.workspace.createProject(env.auth, { title: 'Two scenes', initialFiles: [
+      { path: 'index.html', content: index },
+      ...paths.map((path, i) => ({ path, content: `<html><body><div data-composition-id="scene-${i}" data-duration="2"><p>Unique text ${i}</p><img src="/poster-${i}.png"></div></body></html>` })),
+    ] });
+    const url = `/api/projects/${projectId}/preview`;
+    const app = new Hono<{ Variables: StudioVariables }>();
+    let base = 'https://preview.example/grant-one/';
+    app.use('*', async (c, next) => { c.set('previewAssetBase', base); await next(); });
+    app.route('/', env.studioApp);
+    const loads = t.mock.method(env.files, 'loadVirtualProject');
+    const full = await app.request(url);
+    const doc = parseHTMLContent(await full.text());
+    const manifest = (d: Document) => d.querySelector('meta[name="hf-scene-parts"]')?.getAttribute('content');
+    const config = (d: Document) => d.querySelector('script[data-openmotion-preview]')?.getAttribute('data-openmotion-preview');
+    const sceneUrl = (file: string) => url + '?sceneFile=' + encodeURIComponent(file);
+    const etags = new Set([full.headers.get('etag')]);
+    for (const [i, file] of paths.entries()) {
+      const response = await app.request(sceneUrl(file));
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get('content-type')!, /^text\/plain/);
+      const html = await response.text();
+      const part = parseHTMLContent(html);
+      assert.equal(manifest(part), manifest(doc));
+      assert.equal(config(part), config(doc));
+      assert.equal(part.querySelector('script[data-openmotion-preview]')?.hasAttribute('src'), false);
+      assert.equal(part.querySelector('[data-composition-file]')?.getAttribute('data-composition-file'), file);
+      assert.ok(html.includes('Unique text ' + i));
+      assert.ok(!html.includes('Unique text ' + (1-i)));
+      assert.ok(html.includes(base + 'poster-' + i + '.png'));
+      const tag = response.headers.get('etag')!;
+      assert.ok(tag && !etags.has(tag));
+      etags.add(tag);
+      assert.equal((await app.request(sceneUrl(file), {headers: {'If-None-Match': tag}})).status, 304);
+    }
+    base = 'https://preview.example/grant-two/';
+    const renewed = await app.request(sceneUrl(paths[0]!));
+    const html = await renewed.text();
+    assert.ok(html.includes(base + 'poster-0.png') && !html.includes('grant-one'));
+    assert.equal(loads.mock.callCount(), 1);
+    assert.equal((await app.request(sceneUrl('missing.html'))).status, 404);
+    assert.equal((await app.request(sceneUrl('poster.png'))).status, 400);
+    assert.equal((await app.request(sceneUrl(paths[0]!) + '&capture=1')).status, 400);
+  });
+
   it('signals retryable overload to an isolated document through the authenticated bridge', async t => {
     const env = createStudioTestEnv();
     const { projectId } = await env.workspace.createProject(env.auth);
