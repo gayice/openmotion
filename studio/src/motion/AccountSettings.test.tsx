@@ -107,7 +107,7 @@ it('refreshes Go on checkout return and updates providers only after the plan ch
   const billingReads = () => hooks.request.mock.calls.filter(([route]) => route === 'settings/account?refresh=true').length;
   expect(billingReads()).toBe(1);
   expect(page.querySelector('[data-guide="upgrade"]')).toBeNull();
-  expect(page.querySelector('.om-account-metrics')?.textContent).toContain('plus');
+  expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe('Plus');
   expect(notifyProvidersChanged).toHaveBeenCalledTimes(1);
   await act(async () => window.dispatchEvent(new Event('focus')));
   expect(billingReads()).toBe(1);
@@ -120,8 +120,10 @@ it('explains that account models still work when the plan and balance cannot be 
 
 it('asks the local service to open the subscription page in the system browser, and opens it itself only as a fallback', async () => {
   const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');
-  const manage = page.querySelector<HTMLButtonElement>('.om-settings-section button.om-button')!;
-  expect(manage.textContent).toBe('Manage subscription');
+  const manage = page.querySelector<HTMLButtonElement>('.om-plan-usage button.om-plan-usage-console')!;
+  expect(manage.textContent).toBe('Go to console');
+  expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe('Plus');
+  expect(page.querySelector('.om-plan-usage [data-quota="balance"]')?.textContent).toContain('$12.00');
   expect(page.querySelector('.om-settings-section a')).toBeNull();
   const popup = vi.spyOn(window, 'open').mockReturnValue(null);
   const handoff = 'https://open-design.ai/cloud/login?intentId=intent-1';
@@ -147,6 +149,13 @@ it('asks the local service to open the subscription page in the system browser, 
   popup.mockRestore();
 });
 
+it('shows an unknown plan, not Free or an Upgrade, until the first billing read arrives', async () => {
+  const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' } }, 'en', 'subscription');
+  expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe('—');
+  expect(page.querySelector('.om-plan-usage [data-quota="balance"]')?.textContent).toContain('—');
+  expect([...page.querySelectorAll('.om-plan-usage button')].map(item => item.textContent)).toEqual(['Go to console', 'Top up']);
+});
+
 it('replaces missing billing metrics with a dashboard link on 403 and restores them on retry', async () => {
   const page = await open({ state: 'signed-in', billingUnavailable: true, billingError: { status: 403 } }, 'zh-CN', 'subscription');
   expect(page.textContent).toContain('账单服务拒绝了本次查询');
@@ -154,7 +163,7 @@ it('replaces missing billing metrics with a dashboard link on 403 and restores t
   expect([...page.querySelectorAll('.om-settings-section button.om-button')].some(item => item.textContent === '管理订阅')).toBe(true);
   hooks.account = { state: 'signed-in', plan: 'pro', balance: '0.00', consoleUrl: 'https://open-design.ai/cloud' };
   await act(async () => page.querySelector<HTMLButtonElement>('button[aria-busy]')!.click());
-  expect(page.querySelector('.om-account-metrics')?.textContent).toContain('$0.00');
+  expect(page.querySelector('.om-plan-usage')?.textContent).toContain('$0.00');
   expect(page.textContent).not.toContain('账单服务拒绝了本次查询');
 });
 
@@ -191,7 +200,8 @@ it('offers Free and Go accounts an upgrade through the registered entry source, 
     expect(page.querySelector('.om-plan-name')?.textContent).toBe(plan === 'free' ? 'Free plan' : 'Go');
     expect(upgrade.textContent).toContain('Upgrade to Plus'); expect(upgrade.hasAttribute('data-primary')).toBe(true);
     expect(manage.textContent).toContain('Manage subscription');
-    expect(page.querySelector('.om-settings-section .om-button')).toBeNull();
+    // The plan card skips its own Upgrade while the guide above offers one.
+    expect([...page.querySelectorAll('.om-plan-usage button')].map(item => item.textContent)).toEqual(['Go to console', 'Top up']);
     expect(page.querySelector('.om-account-summary')).toBeNull();
   }
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');
