@@ -1,5 +1,5 @@
 export const MAX_PEER_PREVIEW_SOURCE_LENGTH = 128 * 1024;
-export type PreviewLiveEdits = { position?: true; mediaTiming?: true };
+export type PreviewLiveEdits = { position?: true; mediaTiming?: true; cssLayoutOffset?: true };
 export const PREVIEW_ATTRIBUTES = [
   "data-start", "data-end", "data-duration", "data-track-index", "data-playback-start", "data-media-start",
   "data-timeline-locked", "data-hidden", "muted", "data-volume",

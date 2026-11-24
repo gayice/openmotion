@@ -43,6 +43,9 @@ export const PREVIEW_CANVAS_DRAG = `
   }
 
   function animatedLayoutOffset(element, style) {
+    // GSAP may absorb a CSS translate into its own transform on the next load.
+    // Use this coordinate system only when compilation proved the scene has no authored script.
+    if (!(settings.canRebindTiming || settings.liveEdits?.cssLayoutOffset)) return null;
     if (!style.animationName || style.animationName === 'none') return null;
     const frames = element.getAnimations().flatMap(({effect}) =>
       effect?.target === element && !effect.pseudoElement ? effect.getKeyframes() : []);
@@ -120,7 +123,7 @@ export const PREVIEW_CANVAS_DRAG = `
     const localTime = window.__timelines?.[element.closest('[data-composition-id]')?.getAttribute('data-composition-id')]?.time?.();
     const time = Number.isFinite(localTime) ? localTime : (Number(window.__player?.getTime?.()) || 0);
     const pos = axis => parseFloat(window.gsap?.getProperty?.(element, axis)) || 0;
-    const startPosition = {time,x:pos('x'),y:pos('y')};
+    const startPosition = translate ? {time} : {time,x:pos('x'),y:pos('y')};
     drag = { startPosition, id: message.gestureId, element, original, left, top, makeRelative, translate, axes, selection, width, height, corner };
     return { geometry: selection.geometry, viewport: selection.viewport };
   }
