@@ -294,6 +294,13 @@ test('Chromium preview bridges keep tracked annotation boxes aligned as content 
         <button id="target" style="position:absolute;top:90px;left:10px;width:100px;height:30px">Target</button>
       </div>
     </div>
+    <div id="scaled-outer" style="position:absolute;top:20px;left:250px;width:240px;height:200px;overflow:auto;transform:scale(.5,.75);transform-origin:top left">
+      <div id="scaled-inner" style="position:relative;top:40px;left:40px;width:320px;height:240px;overflow:auto;transform:scale(.75,.5);transform-origin:top left">
+        <div style="position:relative;width:500px;height:400px">
+          <div id="scaled-target" style="position:absolute;top:130px;left:130px;width:40px;height:40px"></div>
+        </div>
+      </div>
+    </div>
   </body>`;
   const site = createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -375,6 +382,26 @@ test('Chromium preview bridges keep tracked annotation boxes aligned as content 
         await frame.evaluate(() => window.scrollTo(0, 0));
         await waitForScroll(0);
         await waitForBox(270);
+
+        const scaledDelta = await frame.$eval('#scaled-target', target => {
+          const before = target.getBoundingClientRect();
+          document.querySelector('#scaled-outer')!.scrollTo(40, 20);
+          document.querySelector('#scaled-inner')!.scrollTo(20, 20);
+          const after = target.getBoundingClientRect();
+          return { x: after.x - before.x, y: after.y - before.y };
+        });
+        assert.deepEqual(scaledDelta, { x: -27.5, y: -22.5 });
+        await post('om:design-track-elements', {
+          scopes: [{ id: 'scaled-region', containers: [
+            { selector: '#scaled-outer', x: 0, y: 0 },
+            { selector: '#scaled-inner', x: 0, y: 0 },
+          ] }],
+        });
+        const scaledScope = await page.waitForFunction(() =>
+          (window as any).__annotationMessages['om:design-element-boxes']?.at(-1)?.scopes.find(
+            (entry: any) => entry.id === 'scaled-region',
+          ), { timeout: 5000 });
+        assert.deepEqual((await scaledScope.jsonValue()).offset, scaledDelta);
       });
     }
   } finally {

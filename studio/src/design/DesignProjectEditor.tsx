@@ -350,9 +350,10 @@ export function DesignProjectEditor({
   const [sidebarOpen, setSidebarOpen] = useState(!embedded);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('files');
   const [commentFilter, setCommentFilter] = useState<'open' | 'all' | 'resolved'>('open');
-  const [activeTool, setActiveTool] = useState<AnnotationTool>(() =>
+  const [annotationTool, setActiveTool] = useState<AnnotationTool>(() =>
     externalAnnotateActive ? externalToolToDesignTool(externalAnnotTool) : 'none',
   );
+  const activeTool = previewVersion ? 'none' : annotationTool;
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
   const selectedCommentCardRef = useRef<HTMLDivElement>(null);
   const [commentSlideIndexes, setCommentSlideIndexes] = useState(() => new Map<string, number>());
@@ -398,7 +399,7 @@ export function DesignProjectEditor({
   const [penPoints, setPenPoints] = useState<ReviewPoint[]>([]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const isolatedDeckFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const [isolatedDeckFrame, setIsolatedDeckFrame] = useState<HTMLIFrameElement | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const bridgeToken = useMemo(() => makeRequestId('bridge'), []);
   const [previewScroll, setPreviewScroll] = useState<PreviewPoint>(ORIGIN);
@@ -594,7 +595,7 @@ export function DesignProjectEditor({
         if (!fromOwnIframe) return;
         const frame = iframeRef.current;
         if (frame && event.source === frame.contentWindow && data.token === bridgeToken && typeof data.isolated === 'boolean') {
-          isolatedDeckFrameRef.current = data.isolated ? frame : null;
+          setIsolatedDeckFrame(data.isolated ? frame : null);
         }
         setActiveSlide(data.active);
         setSlideCount(data.count);
@@ -641,6 +642,7 @@ export function DesignProjectEditor({
         return;
       }
       if ((data.type === 'om:design-pick' || data.type === 'om:preview-pick') && data.element) {
+        if (previewVersion) return;
         const raw = data.element as Record<string, unknown>;
         const rawBox = (raw.box ?? raw.rect ?? data.rect ?? { x: 0, y: 0, width: 40, height: 24 }) as {
           x?: number; y?: number; width?: number; height?: number;
@@ -697,7 +699,7 @@ export function DesignProjectEditor({
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [bridgeToken, configureDeck, finishDrawingDraft]);
+  }, [bridgeToken, configureDeck, finishDrawingDraft, previewVersion]);
 
   // Toggle pick mode inside bridge iframe
   useEffect(() => {
@@ -821,7 +823,17 @@ export function DesignProjectEditor({
   };
 
   const handlePreviewVersion = (versionId: string) => {
-    setPreviewVersionId(versionId === currentVersionId ? null : versionId);
+    const historical = versionId !== currentVersionId;
+    if (historical) {
+      clearDrawingRequest();
+      setPendingDraft(null);
+      setCommentText('');
+      setDragStart(null);
+      setDragCurrent(null);
+      setPenPoints([]);
+      if (activeTool !== 'none') updateAnnotationTool('none');
+    }
+    setPreviewVersionId(historical ? versionId : null);
     setEffectiveViewMode('preview');
   };
 
@@ -830,7 +842,11 @@ export function DesignProjectEditor({
     setExporting(format);
     setExportOpen(false);
     try {
-      const filename = await designClient.downloadExport(project.id, { format, versionId: versionId ?? previewVersionId, filePath: isHtmlActive ? activeFile : project.entry });
+      const exportVersionId = versionId ?? previewVersion?.id ?? null;
+      const filePath = exportVersionId
+        ? exportVersionId === previewVersion?.id ? previewFile : undefined
+        : isHtmlActive ? effectiveFile : project.entry;
+      const filename = await designClient.downloadExport(project.id, { format, versionId: exportVersionId, filePath });
       showToast(t('Exported {filename}', { filename }), 'info', 'feedback');
     } catch (err) {
       showToast(err instanceof Error ? err.message : t('Export failed'), 'error', 'feedback');
@@ -925,7 +941,7 @@ export function DesignProjectEditor({
   }, [captureRef, effectiveViewMode, captureDesignSnapshot]);
 
   const attachDraftToSuperAgent = async (sendImmediately: boolean) => {
-    if (!project || !pendingDraft || !onAttachToChat || attachingChat) return;
+    if (!project || previewVersion || !pendingDraft || !onAttachToChat || attachingChat) return;
     setAttachingChat(true);
     try {
       const el = overlayRef.current;
@@ -1003,7 +1019,7 @@ export function DesignProjectEditor({
   };
 
   const submitDraftComment = async () => {
-    if (!project || !pendingDraft) return;
+    if (!project || previewVersion || !pendingDraft) return;
     const autoText = pendingDraft.element
       ? `${pendingDraft.element.tagName} ${pendingDraft.element.label}`.slice(0, 120)
       : pendingDraft.region
@@ -1019,7 +1035,7 @@ export function DesignProjectEditor({
       const rect = el?.getBoundingClientRect();
       const vw = frameWidth ?? Math.max(320, Math.round(el?.clientWidth || rect?.width || 1280));
       const vh = frameHeight ?? Math.max(240, Math.round(el?.clientHeight || rect?.height || 800));
-      const isolatedSlide = iframeRef.current && isolatedDeckFrameRef.current === iframeRef.current;
+      const isolatedSlide = iframeRef.current !== null && isolatedDeckFrame === iframeRef.current;
       const anchor: DesignCommentAnchor = {
         filePath: activeFile || project.entry,
         viewport: { id: effectiveViewportId, width: vw, height: vh },
@@ -1157,10 +1173,14 @@ export function DesignProjectEditor({
     return lookup;
   }, [projectId]);
 
-  const pinComments = useMemo(() => openComments.filter(c =>
-    c.anchor.filePath === (activeFile || project?.entry)
-    && (!isDeck || c.anchor.slideIndex === undefined || c.anchor.slideIndex === activeSlide),
-  ), [openComments, activeFile, project?.entry, isDeck, activeSlide]);
+  const pinComments = useMemo(() => {
+    if (previewVersion) return [];
+    return openComments.filter(comment => {
+      const slideIndex = commentSlideIndexes.get(`${projectId}:${comment.id}`) ?? comment.anchor.slideIndex;
+      return comment.anchor.filePath === effectiveFile
+        && (!isDeck || slideIndex === undefined || slideIndex === activeSlide);
+    });
+  }, [previewVersion, openComments, commentSlideIndexes, projectId, effectiveFile, isDeck, activeSlide]);
 
   const pendingElement = pendingDraft?.element;
   const trackedElements = useMemo(() => {
@@ -1199,9 +1219,15 @@ export function DesignProjectEditor({
   const pendingOffset = pendingBox && pendingElement
     ? { x: pendingBox.x - pendingElement.box.x, y: pendingBox.y - pendingElement.box.y }
     : previewScrollOffset(pendingDraft?.scroll, previewScroll, pendingScope?.offset);
-  const positionedComments = pinComments.map(c => {
-    const scope = previewScopes.get(c.id);
-    return { comment: c, clip: scope?.clip, offset: previewScrollOffset(c.anchor.scroll, previewScroll, scope?.offset) };
+  const isolatedDeck = iframeRef.current !== null && isolatedDeckFrame === iframeRef.current;
+  const positionedComments = pinComments.map(comment => {
+    const scope = previewScopes.get(comment.id);
+    // Legacy comments captured the window scroll of the entire slide stack.
+    // The isolated slide already has its own viewport, so keep the captured viewport coordinates.
+    const legacyInIsolatedDeck = isolatedDeck && !comment.anchor.isolatedSlide
+      && commentSlideIndexes.has(`${projectId}:${comment.id}`);
+    const capturedScroll = legacyInIsolatedDeck ? ORIGIN : comment.anchor.scroll;
+    return { comment, clip: scope?.clip, offset: previewScrollOffset(capturedScroll, previewScroll, scope?.offset) };
   });
 
   const awaitingSrcDoc = !embedded && effectiveViewMode === 'preview' && isHtmlActive && !previewVersion && !fileContent;
@@ -1486,6 +1512,7 @@ export function DesignProjectEditor({
                   <Tooltip label={t('Comment on element')}>
                     <IconButton
                       aria-label={t('Comment')}
+                      disabled={Boolean(previewVersion)}
                       variant={activeTool === 'comment' ? 'primary' : 'ghost'}
                       icon={<RemixIcon name="chat-1-line" size={15} />}
                       onClick={() => toggleTool('comment')}
@@ -1494,6 +1521,7 @@ export function DesignProjectEditor({
                   <Tooltip label={t('Mark region')}>
                     <IconButton
                       aria-label={t('Region')}
+                      disabled={Boolean(previewVersion)}
                       variant={activeTool === 'region' ? 'primary' : 'ghost'}
                       icon={<RemixIcon name="shape-2-line" size={15} />}
                       onClick={() => toggleTool('region')}
@@ -1502,6 +1530,7 @@ export function DesignProjectEditor({
                   <Tooltip label={t('Draw pen annotation')}>
                     <IconButton
                       aria-label={t('Draw')}
+                      disabled={Boolean(previewVersion)}
                       variant={activeTool === 'pen' ? 'primary' : 'ghost'}
                       icon={<RemixIcon name="pen-nib-line" size={15} />}
                       onClick={() => toggleTool('pen')}
@@ -1641,6 +1670,7 @@ export function DesignProjectEditor({
               <Tooltip label={t('Comment on element')}>
                 <IconButton
                   aria-label={t('Comment')}
+                  disabled={Boolean(previewVersion)}
                   variant={activeTool === 'comment' ? 'primary' : 'ghost'}
                   icon={<RemixIcon name="chat-1-line" size={15} />}
                   onClick={() => toggleTool('comment')}
@@ -1649,6 +1679,7 @@ export function DesignProjectEditor({
               <Tooltip label={t('Mark region')}>
                 <IconButton
                   aria-label={t('Region')}
+                  disabled={Boolean(previewVersion)}
                   variant={activeTool === 'region' ? 'primary' : 'ghost'}
                   icon={<RemixIcon name="shape-2-line" size={15} />}
                   onClick={() => toggleTool('region')}
@@ -1657,6 +1688,7 @@ export function DesignProjectEditor({
               <Tooltip label={t('Draw pen annotation')}>
                 <IconButton
                   aria-label={t('Draw')}
+                  disabled={Boolean(previewVersion)}
                   variant={activeTool === 'pen' ? 'primary' : 'ghost'}
                   icon={<RemixIcon name="pen-nib-line" size={15} />}
                   onClick={() => toggleTool('pen')}

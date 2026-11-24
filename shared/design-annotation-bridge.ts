@@ -82,11 +82,12 @@ export const DESIGN_ANNOTATION_BRIDGE = `
       if (!captured || !Number.isFinite(captured.x) || !Number.isFinite(captured.y)) return;
       const element = uniqueAnnotationSelectorMatch(captured.selector);
       if (!element) return;
-      offset.x += captured.x - element.scrollLeft;
-      offset.y += captured.y - element.scrollTop;
       const rect = element.getBoundingClientRect();
       const scaleX = element.offsetWidth ? rect.width / element.offsetWidth : 1;
       const scaleY = element.offsetHeight ? rect.height / element.offsetHeight : 1;
+      // The annotation is in viewport pixels; each scroll delta is in its container's local pixels.
+      offset.x += (captured.x - element.scrollLeft) * scaleX;
+      offset.y += (captured.y - element.scrollTop) * scaleY;
       const clientLeft = rect.left + element.clientLeft * scaleX;
       const clientTop = rect.top + element.clientTop * scaleY;
       left = Math.max(left, clientLeft);

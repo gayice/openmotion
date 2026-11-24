@@ -243,7 +243,6 @@ describe('DesignProjectEditor', () => {
     const legacyComment: DesignComment = {
       ...mockComment,
       text: 'Legacy annotation on the second slide',
-      status: 'resolved',
       anchor: {
         filePath: mockProject.entry,
         viewport: mockComment.anchor.viewport,
@@ -285,11 +284,13 @@ describe('DesignProjectEditor', () => {
     const findButton = (selector: string, label: string) =>
       Array.from(container.querySelectorAll<HTMLButtonElement>(selector)).find(button => button.textContent?.trim().startsWith(label))!;
     await act(async () => { findButton('[role="tablist"] button', 'Comments').click(); });
-    await act(async () => { findButton('.om-design-segmented button', 'All').click(); });
 
     const [legacyCard, isolatedCard] = Array.from(container.querySelectorAll('.om-design-comment-card'));
     const labelButton = (card: Element) => card.querySelector<HTMLButtonElement>('.om-design-comment-location button')!;
     const thumbnail = (card: Element) => card.querySelector<HTMLImageElement>('.om-design-annotation-snapshot-image')!;
+    const pin = (comment: DesignComment) => Array.from(container.querySelectorAll<HTMLElement>('.om-design-pin'))
+      .find(element => element.title === comment.text);
+    expect(pin(legacyComment)).toBeDefined();
     await act(async () => {
       thumbnail(legacyCard!).dispatchEvent(new Event('load'));
       thumbnail(isolatedCard!).dispatchEvent(new Event('load'));
@@ -297,13 +298,28 @@ describe('DesignProjectEditor', () => {
     expect(labelButton(legacyCard!).textContent).toBe('Slide 2');
     expect(labelButton(isolatedCard!).textContent).toBe('Slide 3');
     expect(metadataRequests).toEqual([legacyPreview]);
+    expect(pin(legacyComment)).toBeUndefined();
 
     const frame = container.querySelector<HTMLIFrameElement>('.om-design-iframe')!;
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
+    await act(async () => { frame.dispatchEvent(new Event('load')); });
+    const bridgeToken = postMessage.mock.calls.find(([message]) => message.type === 'om:design-mode')?.[0].token;
+    expect(bridgeToken).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: frame.contentWindow,
+        data: { type: 'od:slide-state', token: bridgeToken, isolated: true, active: 0, count: 3 },
+      }));
+    });
     await act(async () => { labelButton(legacyCard!).click(); });
     expect(postMessage).toHaveBeenCalledWith({ type: 'od:slide', action: 'go', index: 1 }, '*');
+    expect(pin(legacyComment)?.dataset.selected).toBe('true');
+    expect(pin(legacyComment)?.style.top).toBe('52px');
+    expect(container.querySelector<HTMLElement>('.om-design-region-box[data-saved="true"][data-selected="true"]')?.style.top).toBe('52px');
     await act(async () => { labelButton(isolatedCard!).click(); });
     expect(postMessage).toHaveBeenCalledWith({ type: 'od:slide', action: 'go', index: 2 }, '*');
+    expect(pin(legacyComment)).toBeUndefined();
+    expect(pin(isolatedComment)?.dataset.selected).toBe('true');
     expect(metadataRequests).toEqual([legacyPreview]);
   });
 
@@ -451,7 +467,7 @@ describe('DesignProjectEditor', () => {
     }
   });
 
-  it('previews a historical version separately and makes it current without adding history', async () => {
+  it('previews a historical version read-only, exports its entry and makes it current without adding history', async () => {
     const previous = {
       id: 'v-1', label: 'v1', number: 1, createdAt: 1700000000000,
       source: 'create' as const, summary: null, prompt: null, restoredFrom: null, entry: 'cover.html',
@@ -465,6 +481,7 @@ describe('DesignProjectEditor', () => {
     vi.spyOn(designClient, 'listVersions').mockImplementation(async () => ({
       versions: [...versions], currentVersionId: currentProject.versionId, nextCursor: null,
     }));
+    vi.spyOn(designClient, 'listComments').mockResolvedValue({ comments: [mockComment], sourceRevision: revision });
     vi.spyOn(designClient, 'readFile').mockImplementation(async () => ({
       path: currentProject.entry, content: '<h1>Deck</h1>', revision: currentProject.revision, size: 13, nextOffset: null,
     }));
@@ -474,12 +491,35 @@ describe('DesignProjectEditor', () => {
       return { project: currentProject, version: previous, changed: true };
     });
     const onNotify = vi.fn();
+    const onAttachToChat = vi.fn();
+    const downloadExport = vi.spyOn(designClient, 'downloadExport').mockResolvedValue('project');
+    const renderEditor = (externalAnnotateActive?: boolean) => root.render(
+      <I18nProvider>
+        <DesignProjectEditor projectId={projectId} onBack={() => {}} embedded onNotify={onNotify}
+          onAttachToChat={onAttachToChat} externalAnnotateActive={externalAnnotateActive} externalAnnotTool="region" />
+      </I18nProvider>,
+    );
 
-    await act(async () => {
-      root.render(<I18nProvider><DesignProjectEditor projectId={projectId} onBack={() => {}} embedded onNotify={onNotify} /></I18nProvider>);
-    });
-    const initialFrame = container.querySelector<HTMLIFrameElement>('.om-design-iframe');
+    await act(async () => { renderEditor(); });
+    const frame = () => container.querySelector<HTMLIFrameElement>('.om-design-iframe')!;
+    const clickElementInFrame = () => window.dispatchEvent(new MessageEvent('message', {
+      source: frame().contentWindow,
+      data: {
+        type: 'om:design-pick',
+        token: new URL(frame().getAttribute('src')!, window.location.href).searchParams.get('omBridge'),
+        element: { tagName: 'h1', selector: 'h1', label: 'Heading' },
+      },
+    }));
+    const draftNote = () => container.querySelector('textarea[placeholder="Add a note for Super Agent (optional)…"]');
+    const commentTool = () => container.querySelector<HTMLButtonElement>('button[aria-label="Comment"]')!;
+    const initialFrame = frame();
     expect(initialFrame?.getAttribute('src')).toContain('/index.html?r=0');
+    expect(container.querySelector('.om-design-pin')).not.toBeNull();
+    await act(async () => {
+      commentTool().click();
+      clickElementInFrame();
+    });
+    expect(draftNote()).not.toBeNull();
     await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Toggle panel"]')!.click(); });
     const versionsTab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tablist"] button')).find(button => button.textContent === 'Versions');
     await act(async () => { versionsTab!.click(); });
@@ -490,7 +530,29 @@ describe('DesignProjectEditor', () => {
     await act(async () => { versionButton('v1', 'Preview')!.click(); });
     expect(restoreVersion).not.toHaveBeenCalled();
     expect(versionButton('v2', 'Current')).toBeDefined();
-    expect(container.querySelector('.om-design-iframe')?.getAttribute('src')).toContain('/cover.html?version=v-1');
+    expect(frame().getAttribute('src')).toContain('/cover.html?version=v-1');
+    for (const label of ['Comment', 'Region', 'Draw']) {
+      expect(container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.disabled).toBe(true);
+    }
+    expect(container.querySelector('.om-design-pin')).toBeNull();
+    expect(draftNote()).toBeNull();
+    await act(async () => { renderEditor(true); });
+    expect(container.querySelector<HTMLElement>('.om-design-overlay')?.dataset.interactive).toBe('false');
+    await act(async () => { clickElementInFrame(); });
+    expect(draftNote()).toBeNull();
+
+    const exportButton = Array.from(container.querySelectorAll<HTMLButtonElement>('.om-design-toolbar button'))
+      .find(button => button.textContent?.trim() === 'Export')!;
+    for (const [format, label] of [['html', 'Standalone HTML (.html)'], ['pdf', 'PDF document (.pdf)'], ['png', 'PNG screenshot (.png)']]) {
+      await act(async () => { exportButton.click(); });
+      const action = Array.from(document.querySelectorAll<HTMLButtonElement>('.om-design-popover button'))
+        .find(button => button.textContent?.trim() === label)!;
+      await act(async () => { action.click(); });
+      expect(downloadExport).toHaveBeenLastCalledWith(projectId, { format, versionId: 'v-1', filePath: 'cover.html' });
+    }
+    await act(async () => { versionButton('v2', 'Export')!.click(); });
+    expect(downloadExport).toHaveBeenLastCalledWith(projectId, { format: 'zip', versionId: 'v-2', filePath: undefined });
+
     const makeCurrent = Array.from(container.querySelectorAll<HTMLButtonElement>('.om-design-banner button')).find(button => button.textContent === 'Make current version');
     await act(async () => { makeCurrent!.click(); });
     const restoredFrame = container.querySelector<HTMLIFrameElement>('.om-design-iframe');
@@ -503,6 +565,8 @@ describe('DesignProjectEditor', () => {
     expect(versionButton('v1', 'Make current version')).toBeUndefined();
     expect(versionButton('v2', 'Make current version')).toBeDefined();
     expect(onNotify).toHaveBeenLastCalledWith('Set v1 as the current version', 'info');
+    expect(commentTool().disabled).toBe(false);
+    expect(container.querySelector<HTMLElement>('.om-design-overlay')?.dataset.interactive).toBe('true');
   });
 
   it('refreshes the active version after an external switch with the same file revision', async () => {
