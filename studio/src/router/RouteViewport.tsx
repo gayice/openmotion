@@ -30,6 +30,7 @@ import {
   LazyModelHub,
   LazyModelOverview,
   LazyMotionStudioPage,
+  LazyNotFoundPage,
   LazyScenarioHub,
   LazyScenarioWorkspace,
   LazySettingsCenter,
@@ -100,6 +101,9 @@ export type RouteViewportProps = {
   openMotionProject: (id: string) => Promise<boolean>;
   returnToExplore: () => void;
   selectAssetRoute: (assetId: string | null, assetVersion: string | null) => void;
+  missingPath?: string | null;
+  canGoBack?: boolean;
+  onGoBack?: () => void;
 };
 
 export function RouteViewport({
@@ -143,6 +147,9 @@ export function RouteViewport({
   openMotionProject,
   returnToExplore,
   selectAssetRoute,
+  missingPath,
+  canGoBack,
+  onGoBack,
 }: RouteViewportProps) {
   const { t } = useI18n();
   const gameStudioEnabled = useCloudFeatureEnabled('gameStudio');
@@ -218,6 +225,19 @@ export function RouteViewport({
           />
         </RouteSurface>
       </KeepAliveSlot>
+
+      {page.notFound && !templatesPage && !settings && (
+        <div className="om-explore-host">
+          <RouteSurface>
+            <LazyNotFoundPage
+              requestedPath={missingPath}
+              canGoBack={canGoBack}
+              onExplore={openHome}
+              onBack={onGoBack}
+            />
+          </RouteSurface>
+        </div>
+      )}
 
       {workflowsEnabled && page.scenarioHub && !templatesPage && !settings && (
         <div className="om-explore-host">

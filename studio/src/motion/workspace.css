@@ -116,6 +116,13 @@
 .motion-route-state h1 { font-size: var(--motion-text-title); }
 .motion-route-state p { font-size: var(--motion-text-md); }
 .motion-route-state > div { display: flex; justify-content: center; gap: 12px; }
+.om-not-found { display: grid; place-items: center; min-height: 100%; padding: var(--motion-space-32); background: var(--motion-bg); color: var(--motion-text); }
+.om-not-found-card { display: flex; flex-direction: column; align-items: center; gap: var(--motion-space-14); width: min(460px, 100%); padding: var(--motion-space-32); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-lg); background: var(--motion-panel); box-shadow: var(--motion-shadow-sm); text-align: center; }
+.om-not-found-code { display: inline-flex; align-items: center; justify-content: center; padding: var(--motion-space-4) var(--motion-space-12); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-sm); background: var(--motion-inset); color: var(--motion-muted); font-family: var(--motion-font-mono); font-size: var(--motion-text-sm); font-weight: var(--motion-weight-semibold); letter-spacing: 0.08em; }
+.om-not-found-title { margin: 0; color: var(--motion-strong); font-size: var(--motion-text-title); line-height: 1.25; }
+.om-not-found-copy { margin: 0; color: var(--motion-muted); font-size: var(--motion-text-md); line-height: 1.6; }
+.om-not-found-path { max-width: 100%; padding: var(--motion-space-4) var(--motion-space-10); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-sm); background: var(--motion-inset); color: var(--motion-dim); font-family: var(--motion-font-mono); font-size: var(--motion-text-sm); overflow-wrap: anywhere; }
+.om-not-found-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--motion-space-10); margin-top: var(--motion-space-6); }
 .motion-route-skeleton { display: flex; flex-direction: column; gap: var(--motion-space-24); width: 100%; min-height: 100%; padding: var(--motion-space-28) var(--motion-space-32); background: var(--motion-bg); opacity: 0; animation: motion-route-fade-in 180ms ease-out 250ms forwards; }
 .motion-route-skeleton-header { display: flex; flex-direction: column; gap: var(--motion-space-10); }
 .motion-route-skeleton-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--motion-space-16); width: 100%; }

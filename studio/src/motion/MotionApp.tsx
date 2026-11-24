@@ -13,7 +13,7 @@ import { EditorLoading, readEditorLoadingLayout, type EditorLoadingLayout } from
 import { RecoveryScreen } from '../components/RecoveryScreen';
 import { trackMotion } from './tracking';
 import { writeWorkspaceHistory } from '../utils/workspaceHistory';
-import { editorProjectIdFromPath, isStandaloneSpaPath } from '../../../shared/spa-routes';
+import { editorProjectIdFromPath, isNotFoundSpaPath, isStandaloneSpaPath } from '../../../shared/spa-routes';
 import { StudioRouterProvider } from '../router/createAppRouter';
 import { readWorkspacePage } from './workspacePageRouting';
 
@@ -41,7 +41,8 @@ function MotionAppContent() {
     sessionId: new URLSearchParams(routerLocation.search).get('session'),
   }));
   const { projectId, sessionId } = route;
-  const settingsPage = isStandaloneSpaPath(routerLocation.pathname, routerLocation.search, routerLocation.hash);
+  const notFoundPage = isNotFoundSpaPath(routerLocation.pathname, routerLocation.search, routerLocation.hash);
+  const settingsPage = notFoundPage || isStandaloneSpaPath(routerLocation.pathname, routerLocation.search, routerLocation.hash);
   const [libraryOnly, setLibraryOnly] = useState(
     () =>
       readWorkspacePage(routerLocation.search, routerLocation.hash, routerLocation.pathname).templates &&
@@ -128,7 +129,7 @@ function MotionAppContent() {
           <ArtifactViewer key={ready.artifact.projectId} artifact={ready.artifact} loadingLayout={loadingLayout} />
         </InitialPreviewLeaseContext.Provider>
       ) : <div className="motion-route-state"><WorkspaceMenuButton />{t('Create a project with your Agent to start editing.')}</div>
-      : libraryOnly ? <TemplateLibraryLanding /> : <EditorLoading layout={loadingLayout} />}
+      : libraryOnly ? <TemplateLibraryLanding /> : settingsPage ? null : <EditorLoading layout={loadingLayout} />}
     </div>
   </WorkspaceFrame>;
 }

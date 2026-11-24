@@ -38,6 +38,7 @@ import { phase1McpCapabilities, phase1Tools } from '../../shared/phase1-tools.ts
 import { isUuid, validateStableRequestId } from '../../shared/project-validation.ts';
 import { loadCaptionSourceOperations } from '../../shared/transcript-captions.ts';
 import { VERSION } from '../../shared/version.ts';
+import { isNotFoundSpaPath } from '../../shared/spa-routes.ts';
 import {
   providerSettingsPreview,
   sessionPath,
@@ -2842,7 +2843,8 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     pathname === '/__hyperframes_config';
 
   app.get('*', async (c) => {
-    const pathname = new URL(c.req.url).pathname;
+    const requestUrl = new URL(c.req.url);
+    const pathname = requestUrl.pathname;
     if (isReservedApiPrefix(pathname)) {
       return c.json({ code: 'NOT_FOUND', error: `Route not found: ${pathname}` }, 404);
     }
@@ -2866,7 +2868,11 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       return c.notFound();
     }
 
+    const notFoundRoute = isNotFoundSpaPath(pathname, requestUrl.search);
+
     // SPA index.html fallback for client-side routes, with runtime observability config injected when enabled.
+    // Unknown routes still serve the Studio shell so the browser renders the dedicated 404 page,
+    // while returning an authentic HTTP 404 status code.
     try {
       const rawHtml = await readFile(path.join(studioBuildDir, 'index.html'), 'utf8');
       const renderedHtml = injectRuntimeConfigIntoHtml(rawHtml, browserObservabilityConfig);
@@ -2886,7 +2892,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const originAgentClusterHeaders: Record<string, string> = previewHostIsolationEnabled
         ? { 'Origin-Agent-Cluster': '?1' }
         : {};
-      if (c.req.header('if-none-match')?.trim() === etag) {
+      if (!notFoundRoute && c.req.header('if-none-match')?.trim() === etag) {
         return new Response(null, {
           status: 304,
           headers: {
@@ -2898,18 +2904,24 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         });
       }
       return new Response(headOnly ? null : bytes, {
-        status: 200,
+        status: notFoundRoute ? 404 : 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
           'Content-Length': String(bytes.byteLength),
-          ETag: etag,
-          'Cache-Control': 'no-cache',
+          ...(notFoundRoute ? { 'Cache-Control': 'no-store' } : { ETag: etag, 'Cache-Control': 'no-cache' }),
           'X-Content-Type-Options': 'nosniff',
           ...originAgentClusterHeaders,
         },
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+
+    if (notFoundRoute) {
+      return new Response('Page not found.', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
     }
 
     return new Response('OpenMotion Studio has not been built yet. Run npm run build:studio.', {
