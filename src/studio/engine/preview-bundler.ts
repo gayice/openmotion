@@ -1,6 +1,6 @@
 import { MAX_PEER_PREVIEW_SOURCE_LENGTH } from '../../../shared/preview-timing.ts';
 import { formatFileVersion } from '../etag.ts';
-import { staticPreviewHtmlSources } from './preview-html-sources.ts';
+import { isPassivePreviewTag, staticPreviewHtmlSources } from './preview-html-sources.ts';
 import { verifiedPreviewLiveEdits } from './preview-live-edits.ts';
 import { bridgeDocumentTags, previewBuildBusyScript } from './preview-bridge.ts';
 import { posix } from 'node:path';
@@ -550,14 +550,13 @@ async function applyDeterministicFonts(html: string, options: BundlePreviewOptio
 }
 
 // User code can sample timing once at startup. Rebinding the runtime alone cannot replay its effects.
-const DECLARATIVE_TAGS = new Set('html head title meta style body main section div article header footer span p h1 h2 h3 h4 h5 h6 img picture canvas audio video source track'.split(' '));
-function hasOnlyDeclarativeMarkup(doc: Document, runtimeUrl: string): boolean {
+function hasOnlyDeclarativeMarkup(doc: Document, runtimeUrl: string, includeFormatting = false): boolean {
   const scripts = doc.querySelectorAll('script');
   const runtime = scripts[0];
   if (scripts.length !== 1 || !runtime?.hasAttribute(RUNTIME_BOOTSTRAP_ATTR) ||
       runtime.getAttribute('src') !== runtimeUrl || runtime.textContent?.trim()) return false;
   return ![...doc.querySelectorAll('*')].some(el =>
-    (el !== runtime && !DECLARATIVE_TAGS.has(el.localName.toLowerCase())) ||
+    (el !== runtime && el.localName !== 'canvas' && !isPassivePreviewTag(el.localName, includeFormatting)) ||
     el.hasAttribute('http-equiv') ||
     el.getAttributeNames().some(name => name.toLowerCase().startsWith('on')));
 }
@@ -591,7 +590,8 @@ async function applyStudioPreviewAugmentations(
     let liveEdits;
     if (!options.capture && !options.canRebindTiming && !Object.keys(options.variables ?? {}).length &&
         !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)) {
-      liveEdits = options.declarativePlacement ? { position: true as const } : await verifiedPreviewLiveEdits(project);
+      const reviewed = await verifiedPreviewLiveEdits(project);
+      liveEdits = options.declarativePlacement ? { ...reviewed, position: true as const } : reviewed;
     }
     const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions, {
       studioOrigin: options.studioOrigin, canRebindTiming: options.canRebindTiming, htmlSources: options.htmlSources, liveEdits,
@@ -864,7 +864,7 @@ export async function bundlePreviewInMemory(
   emitRootCompositionVariableStyles(document, subCompResult.variablesByComp);
   // A composition tree can be CSS-only even though rebinding the root timeline is unsupported.
   const declarativePlacement = Boolean(htmlSources && !canRebindTiming && allCompositionsResolved &&
-    hasOnlyDeclarativeMarkup(document, runtimeUrl));
+    hasOnlyDeclarativeMarkup(document, runtimeUrl, true));
 
   // Coalesce head styles & dedupe @font-face rules
   const allHeadStyles = [...document.querySelectorAll('head style')];

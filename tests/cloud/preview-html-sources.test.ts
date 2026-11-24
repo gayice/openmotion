@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { it } from 'node:test';
 import { MAX_PEER_PREVIEW_SOURCE_LENGTH } from '../../shared/preview-timing.ts';
 import { parseHTMLContent } from '@hyperframes/core/compiler';
@@ -27,13 +28,17 @@ async function htmlSources(files: Record<string, string>) {
 
 it('keeps placement on assembled CSS-only scenes and preserves script and unresolved-scene fallback', async () => {
   const entry = scene(mount('child.html', 'child'));
-  const child = (extra = '') => scene('<h1 id="title">Move</h1><style>@keyframes spin { to { transform: rotate(20deg) } }</style>' + extra, 'child');
+  const child = (extra = '') => scene('<h1 id="title">Move</h1><aside><ul><li><strong>Rich text</strong><br>works</li></ul></aside><style>@keyframes spin { to { transform: rotate(20deg) } }</style>' + extra, 'child');
   const cssOnly = await previewConfig({ 'index.html': entry, 'child.html': child(), 'unused.html': child() });
   assert.deepEqual(cssOnly.smallMountedSources, ['child.html']);
   const large = await previewConfig({ 'index.html': entry, 'child.html': child('x'.repeat(MAX_PEER_PREVIEW_SOURCE_LENGTH)) });
   assert.deepEqual(large.smallMountedSources, []);
   assert.deepEqual(cssOnly.liveEdits, { position: true });
   assert.ok(!cssOnly.canRebindTiming);
+  const digest = createHash('sha256').update(JSON.stringify('mediaTiming')).digest('hex');
+  const declared = entry.replace('<head>', `<head><meta name="openmotion-live-edits" content="mediaTiming" data-scripts-sha256="${digest}">`);
+  const withMedia = await previewConfig({ 'index.html': declared, 'child.html': child() });
+  assert.deepEqual(withMedia.liveEdits, { position: true, mediaTiming: true });
   for (const extra of ['<script>window.place=document.body.offsetLeft</script>', '<img onload="layout()">',
     '<iframe src="extra.html"></iframe>', mount('missing.html', 'missing')]) {
     assert.equal((await previewConfig({ 'index.html': entry, 'child.html': child(extra) })).liveEdits, undefined, extra);
