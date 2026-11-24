@@ -120,6 +120,8 @@ export function useAccountSignIn(area: GuideArea, showToast: ShowToast, provider
     const updated = await refresh(true);
     if (updated && (updated.state !== account?.state || updated.plan?.trim().toLowerCase() !== account?.plan?.trim().toLowerCase()
       || Boolean(updated.billingUnavailable) !== Boolean(account?.billingUnavailable))) notifyProvidersChanged();
+    // The header balance reads its own copy of the account; announce a new balance so it follows.
+    if (updated && updated.balance !== account?.balance) window.dispatchEvent(new Event('motion:account-changed'));
   }, [account, refresh]);
   useEffect(() => {
     const onReturn = () => {

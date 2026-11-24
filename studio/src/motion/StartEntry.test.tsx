@@ -32,13 +32,13 @@ const render = (account: AccountSummary, openAccount = vi.fn()) => {
 };
 const button = () => container.querySelector('button')!;
 
-it('starts the OpenDesign sign-in and opens Settings > Account in one click', async () => {
+it('starts the OpenDesign sign-in in one click and stays on the current page', async () => {
   vi.mocked(gatewayRequest).mockResolvedValue({ state: 'authorizing' });
   const openAccount = render({ state: 'signed-out' });
   expect(button().textContent).toBe('开始使用');
   await act(async () => { button().click(); });
   expect(gatewayRequest).toHaveBeenCalledWith('settings/account/login', 'POST', {});
-  expect(openAccount).toHaveBeenCalledTimes(1);
+  expect(openAccount).not.toHaveBeenCalled();
   const click = vi.mocked(trackMotion).mock.calls.find(([event]) => event === 'ui_click')![1] as Record<string, unknown>;
   expect(click).toMatchObject({ page_name: 'explore', area: 'header', element: 'start_sign_in' });
   expect(validProperties(studioEvents, 'ui_click', click)).toBe(true);
@@ -51,10 +51,20 @@ it('still opens Settings > Account when sign-in cannot start, where the reason i
   expect(openAccount).toHaveBeenCalledTimes(1);
 });
 
-it('does not start a second sign-in while one is waiting for the browser', async () => {
-  const openAccount = render({ state: 'authorizing' });
+it('reopens the browser sign-in page instead of starting a second sign-in while one is waiting', async () => {
+  const open = vi.spyOn(window, 'open').mockReturnValue(null);
+  const openAccount = render({ state: 'authorizing', authorizationUrl: 'https://open-design.ai/cloud/cli/activate?code=ABCD', consoleUrl: '' });
   expect(button().textContent).toBe('登录中…');
   await act(async () => { button().click(); });
   expect(gatewayRequest).not.toHaveBeenCalled();
+  expect(open).toHaveBeenCalledWith('https://open-design.ai/cloud/cli/activate?code=ABCD', '_blank', 'noopener,noreferrer');
+  expect(openAccount).not.toHaveBeenCalled();
+  open.mockRestore();
+});
+
+it('opens Settings > Account when sign-in fails as it starts, where the reason and recovery are shown', async () => {
+  vi.mocked(gatewayRequest).mockResolvedValue({ state: 'signed-out', errorCode: 'connector_unavailable', consoleUrl: '' });
+  const openAccount = render({ state: 'signed-out', consoleUrl: '' });
+  await act(async () => { button().click(); });
   expect(openAccount).toHaveBeenCalledTimes(1);
 });

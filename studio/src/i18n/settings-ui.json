@@ -380,7 +380,10 @@
     "Steer": "Steer（即时打断引导）",
     "Queue": "Queue（加入队列）",
     "Get started": "开始使用",
-    "Signing in…": "登录中…"
+    "Signing in…": "登录中…",
+    "Remaining": "剩余",
+    "Plan credits": "套餐额度",
+    "{plan} plan": "{plan} 套餐"
   },
   "ja": {
     "Go back": "戻る",
@@ -527,7 +530,13 @@
     "Steer": "Steer（即時切り替え）",
     "Queue": "Queue（キュー待機）",
     "Get started": "はじめる",
-    "Signing in…": "サインイン中…"
+    "Signing in…": "サインイン中…",
+    "Remaining": "残り",
+    "Plan credits": "プラン枠",
+    "Available balance": "利用可能残高",
+    "Subscription & usage": "サブスクリプションと使用量",
+    "Free plan": "無料プラン",
+    "{plan} plan": "{plan} プラン"
   },
   "ko": {
     "Go back": "뒤로",
@@ -569,7 +578,13 @@
     "Steer": "Steer (즉시 전환)",
     "Queue": "Queue (대기열)",
     "Get started": "시작하기",
-    "Signing in…": "로그인 중…"
+    "Signing in…": "로그인 중…",
+    "Remaining": "남음",
+    "Plan credits": "플랜 크레딧",
+    "Available balance": "사용 가능 잔액",
+    "Subscription & usage": "구독 및 사용량",
+    "Free plan": "무료 플랜",
+    "{plan} plan": "{plan} 플랜"
   },
   "de": {
     "Go back": "Zurück",
@@ -611,7 +626,13 @@
     "Steer": "Steer (Sofort steuern)",
     "Queue": "Queue (Warteschlange)",
     "Get started": "Loslegen",
-    "Signing in…": "Anmeldung läuft…"
+    "Signing in…": "Anmeldung läuft…",
+    "Remaining": "Verbleibend",
+    "Plan credits": "Planguthaben",
+    "Available balance": "Verfügbares Guthaben",
+    "Subscription & usage": "Abo & Nutzung",
+    "Free plan": "Kostenloser Plan",
+    "{plan} plan": "{plan}-Plan"
   },
   "fr": {
     "Go back": "Retour",
@@ -653,7 +674,13 @@
     "Steer": "Steer (Réorienter)",
     "Queue": "Queue (File d’attente)",
     "Get started": "Commencer",
-    "Signing in…": "Connexion…"
+    "Signing in…": "Connexion…",
+    "Remaining": "Restant",
+    "Plan credits": "Crédits du forfait",
+    "Available balance": "Solde disponible",
+    "Subscription & usage": "Abonnement et utilisation",
+    "Free plan": "Forfait gratuit",
+    "{plan} plan": "Forfait {plan}"
   },
   "ru": {
     "Go back": "Назад",
@@ -695,7 +722,13 @@
     "Steer": "Steer (Переключить)",
     "Queue": "Queue (В очередь)",
     "Get started": "Начать",
-    "Signing in…": "Вход…"
+    "Signing in…": "Вход…",
+    "Remaining": "Осталось",
+    "Plan credits": "Кредиты тарифа",
+    "Available balance": "Доступный баланс",
+    "Subscription & usage": "Подписка и использование",
+    "Free plan": "Бесплатный тариф",
+    "{plan} plan": "Тариф {plan}"
   },
   "es": {
     "Go back": "Volver",
@@ -737,7 +770,13 @@
     "Steer": "Steer (Redirigir)",
     "Queue": "Queue (En cola)",
     "Get started": "Empezar",
-    "Signing in…": "Iniciando sesión…"
+    "Signing in…": "Iniciando sesión…",
+    "Remaining": "Restante",
+    "Plan credits": "Créditos del plan",
+    "Available balance": "Saldo disponible",
+    "Subscription & usage": "Suscripción y uso",
+    "Free plan": "Plan gratuito",
+    "{plan} plan": "Plan {plan}"
   },
   "pt-BR": {
     "Go back": "Voltar",
@@ -779,7 +818,13 @@
     "Steer": "Steer (Redirecionar)",
     "Queue": "Queue (Na fila)",
     "Get started": "Começar",
-    "Signing in…": "Entrando…"
+    "Signing in…": "Entrando…",
+    "Remaining": "Restante",
+    "Plan credits": "Créditos do plano",
+    "Available balance": "Saldo disponível",
+    "Subscription & usage": "Assinatura e uso",
+    "Free plan": "Plano gratuito",
+    "{plan} plan": "Plano {plan}"
   },
   "it": {
     "Go back": "Indietro",
@@ -821,7 +866,13 @@
     "Steer": "Steer (Reindirizza)",
     "Queue": "Queue (In coda)",
     "Get started": "Inizia",
-    "Signing in…": "Accesso in corso…"
+    "Signing in…": "Accesso in corso…",
+    "Remaining": "Rimanente",
+    "Plan credits": "Crediti del piano",
+    "Available balance": "Saldo disponibile",
+    "Subscription & usage": "Abbonamento e utilizzo",
+    "Free plan": "Piano gratuito",
+    "{plan} plan": "Piano {plan}"
   },
   "tr": {
     "Go back": "Geri",
@@ -863,6 +914,12 @@
     "Steer": "Steer (Yönlendir)",
     "Queue": "Queue (Kuyruk)",
     "Get started": "Başla",
-    "Signing in…": "Giriş yapılıyor…"
+    "Signing in…": "Giriş yapılıyor…",
+    "Remaining": "Kalan",
+    "Plan credits": "Plan kredisi",
+    "Available balance": "Kullanılabilir bakiye",
+    "Subscription & usage": "Abonelik ve kullanım",
+    "Free plan": "Ücretsiz plan",
+    "{plan} plan": "{plan} planı"
   }
 }
