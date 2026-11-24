@@ -1,14 +1,26 @@
 import type { RefObject } from "react";
 import { shareCompositionPosterRead, type KnownCompositionSource, MAX_POSTER_SOURCE_LENGTH } from "../player/lib/compositionPosterSource";
 import { beginPeerTimelineUpdate } from "../player/lib/peerTimeline";
-import { hasPeerLiveEdit, hasPeerTimingDocument, hasScriptedStylePreview, tryApplyPeerChanges } from "../player/peerTimingPreview";
+import { hasPeerLiveEdit, hasPeerTimingDocument, hasScriptedStylePreview, mountedPeerFileVersion, tryApplyPeerChanges } from "../player/peerTimingPreview";
 import { isPreviewChanging } from "../player/previewReloading";
 import { announcePreviewScenesSwapped, notePeerPreviewChange, previewSourceRevision } from "../player/sceneSwap";
 import { usePlayerStore } from "../player/store/playerStore";
 import { isStudioEditSaving } from "../utils/studioPendingEdits";
 import type { RemoteFileRead } from "./remoteFileReads";
 import { MAX_PEER_PREVIEW_SOURCE_LENGTH } from "../../../shared/preview-timing";
+import { studioApiFetch } from "../utils/studioApiFetch";
+import { buildProjectApiPath } from "../utils/projectRouting";
 import { confirmedSource } from "../utils/confirmedTextSources";
+
+/** A cold observer can compare a mounted child without prefetching every scene on open. */
+async function readMountedSource(projectId: string, version: string) {
+  const digest = /^"(?:sha256|patch):([a-f0-9]{64})"$/.exec(version)?.[1];
+  if (!digest) return null;
+  const response = await studioApiFetch(buildProjectApiPath(projectId, "/history/blob/" + digest));
+  if (!response.ok || response.headers.get("etag") !== version) return null;
+  const content = await response.text();
+  return content.length <= MAX_PEER_PREVIEW_SOURCE_LENGTH ? { content, version } : null;
+}
 
 /** Project the latest source immediately. Only a verified in-place preview can waive a refresh. */
 export function syncPeerComposition(
@@ -23,7 +35,9 @@ export function syncPeerComposition(
   const liveRoot = frame && (hasPeerTimingDocument(frame) || hasPeerLiveEdit(frame, "position") || hasPeerLiveEdit(frame, "mediaTiming"));
   if (frame && hasScriptedStylePreview(frame) && changedPath?.endsWith(".html")) {
     const base = confirmedSource(projectId, changedPath) ?? (changedPath === path ? previous : null);
-    if (base && base.content.length <= MAX_PEER_PREVIEW_SOURCE_LENGTH) {
+    const liveChild = changedPath !== path && hasPeerLiveEdit(frame, "position") && !isPreviewChanging();
+    const pinned = !base && liveChild ? mountedPeerFileVersion(frame, changedPath) : undefined;
+    if ((base && base.content.length <= MAX_PEER_PREVIEW_SOURCE_LENGTH) || pinned) {
       const revision = previewSourceRevision();
       const isCurrent = () => frame === frameRef.current && revision === previewSourceRevision() &&
         usePlayerStore.getState().timelineProjectId === projectId && !isStudioEditSaving();
@@ -32,16 +46,18 @@ export function syncPeerComposition(
       if (changedFile && changedPath !== path) {
         shareCompositionPosterRead(usePlayerStore.getState(), projectId, changedPath, changedFile);
       }
-      if (changedFile && changedPath !== path && hasPeerLiveEdit(frame, "position") && !isPreviewChanging()) {
+      if (changedFile && liveChild) {
         return changedFile.then(async ({ content, version }) => {
-          if (typeof content !== "string" || !version || !isCurrent() || isPreviewChanging()) return false;
-          const applied = await tryApplyPeerChanges(frame, { path: changedPath, previous: base, current: { content, version } }, isCurrent, "keep-visible");
+          if (typeof content !== "string" || content.length > MAX_PEER_PREVIEW_SOURCE_LENGTH || !version || !isCurrent() || isPreviewChanging()) return false;
+          const previous = base ?? (pinned && pinned !== version ? await readMountedSource(projectId, pinned) : null);
+          if (!previous || !isCurrent() || isPreviewChanging()) return false;
+          const applied = await tryApplyPeerChanges(frame, { path: changedPath, previous, current: { content, version } }, isCurrent, "keep-visible");
           if (applied && isCurrent()) announcePreviewScenesSwapped(frame);
           return applied;
         });
       }
       // Unverified scripts can display a provisional style while their document rebuilds.
-      if (!(changedPath === path && liveRoot)) {
+      if (base && !(changedPath === path && liveRoot)) {
         void changedFile?.then(({ content, version }) => {
           if (typeof content === "string" && version && isCurrent())
             return tryApplyPeerChanges(frame, { path: changedPath, previous: base, current: { content, version } }, isCurrent, "temporary");

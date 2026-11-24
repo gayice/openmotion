@@ -1,3 +1,4 @@
+import { MAX_PEER_PREVIEW_SOURCE_LENGTH } from '../../../shared/preview-timing.ts';
 import { formatFileVersion } from '../etag.ts';
 import { staticPreviewHtmlSources } from './preview-html-sources.ts';
 import { verifiedPreviewLiveEdits } from './preview-live-edits.ts';
@@ -549,15 +550,15 @@ async function applyDeterministicFonts(html: string, options: BundlePreviewOptio
 }
 
 // User code can sample timing once at startup. Rebinding the runtime alone cannot replay its effects.
-const TIMING_ONLY_TAGS = new Set('html head title meta style body main section div article header footer span p h1 h2 h3 h4 h5 h6 img picture canvas audio video source track'.split(' '));
-function canRebindDocumentTiming(doc: Document, runtimeUrl: string): boolean {
+const DECLARATIVE_TAGS = new Set('html head title meta style body main section div article header footer span p h1 h2 h3 h4 h5 h6 img picture canvas audio video source track'.split(' '));
+function hasOnlyDeclarativeMarkup(doc: Document, runtimeUrl: string): boolean {
   const scripts = doc.querySelectorAll('script');
   const runtime = scripts[0];
   if (scripts.length !== 1 || !runtime?.hasAttribute(RUNTIME_BOOTSTRAP_ATTR) ||
       runtime.getAttribute('src') !== runtimeUrl || runtime.textContent?.trim()) return false;
   return ![...doc.querySelectorAll('*')].some(el =>
-    (el !== runtime && !TIMING_ONLY_TAGS.has(el.localName.toLowerCase())) ||
-    el.hasAttribute('data-composition-src') || el.hasAttribute('http-equiv') ||
+    (el !== runtime && !DECLARATIVE_TAGS.has(el.localName.toLowerCase())) ||
+    el.hasAttribute('http-equiv') ||
     el.getAttributeNames().some(name => name.toLowerCase().startsWith('on')));
 }
 
@@ -565,7 +566,7 @@ async function applyStudioPreviewAugmentations(
   html: string,
   project: VirtualProjectReader,
   activeCompositionPath: string,
-  options: { capture: boolean; gsapBaseUrl: string; bridgeOrigin?: string; studioOrigin?: string; canRebindTiming?: boolean; htmlSources?: string[]; variables?: Record<string, unknown> | null },
+  options: { capture: boolean; gsapBaseUrl: string; bridgeOrigin?: string; studioOrigin?: string; canRebindTiming?: boolean; declarativePlacement?: boolean; smallMountedSources?: string[]; htmlSources?: string[]; variables?: Record<string, unknown> | null },
 ): Promise<string> {
   let out = repairCodeExtrudeMaterial(html);
 
@@ -586,10 +587,15 @@ async function applyStudioPreviewAugmentations(
   if (options.bridgeOrigin) {
     const versions = Object.fromEntries(project.listFiles().filter(file => /\.html?$/i.test(file.path))
       .map(file => [file.path, file.blobScope === 'patch' ? formatFileVersion(file.blobScope, file.sha256) : file.sha256]));
-    const liveEdits = !options.capture && !options.canRebindTiming && !Object.keys(options.variables ?? {}).length &&
-      !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)
-      ? await verifiedPreviewLiveEdits(project) : undefined;
-    const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions, options.studioOrigin, options.canRebindTiming, options.htmlSources, liveEdits);
+    let liveEdits;
+    if (!options.capture && !options.canRebindTiming && !Object.keys(options.variables ?? {}).length &&
+        !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)) {
+      liveEdits = options.declarativePlacement ? { position: true as const } : await verifiedPreviewLiveEdits(project);
+    }
+    const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions, {
+      studioOrigin: options.studioOrigin, canRebindTiming: options.canRebindTiming, htmlSources: options.htmlSources, liveEdits,
+      smallMountedSources: liveEdits?.position ? options.smallMountedSources : undefined,
+    });
     const snapdomPreload = options.capture
       ? `<link rel="preload" as="script" href="${new URL('/api/vendor/snapdom.js', options.bridgeOrigin).href}">`
       : '';
@@ -697,7 +703,7 @@ export async function bundlePreviewInMemory(
   const canRebindTiming = Boolean(options.bridgeOrigin && !options.capture && entryFile === 'index.html' &&
     !Object.keys(options.variables ?? {}).length &&
     !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH) &&
-    canRebindDocumentTiming(document, runtimeUrl));
+    !document.querySelector('[data-composition-src]') && hasOnlyDeclarativeMarkup(document, runtimeUrl));
 
   const htmlSources = options.bridgeOrigin && !options.capture && entryFile === 'index.html' &&
     !Object.keys(options.variables ?? {}).length && !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)
@@ -732,6 +738,8 @@ export async function bundlePreviewInMemory(
   const hostIdentityMap = assignBundledRuntimeCompositionIds(trackedHosts);
   const subCompHosts = trackedHosts.filter((host) => host.hasAttribute('data-composition-src'));
 
+  let allCompositionsResolved = true;
+  const smallMountedSources = new Set<string>();
   const subCompResult = inlineSubCompositions(document, subCompHosts, {
     resolveHtml: (srcPath) => {
       if (!isRelativeUrl(srcPath)) return null;
@@ -739,6 +747,7 @@ export async function bundlePreviewInMemory(
       if (!resolved) return null;
       htmlSources?.add(resolved);
       const html = project.readText(resolved);
+      if (options.bridgeOrigin && !options.capture && html !== null && html.length <= MAX_PEER_PREVIEW_SOURCE_LENGTH) smallMountedSources.add(resolved);
       return html === null ? null : scopeNestedSources(project, resolved, sourceDir, ensureHfIds(html));
     },
     parseHtml: html => {
@@ -763,7 +772,7 @@ export async function bundlePreviewInMemory(
     parseHostVariables: parseHostVariableValues,
     buildScopeSelector: (compId) => cssAttributeSelector('data-composition-id', compId),
     scriptErrorLabel: '[HyperFrames] composition script error:',
-    onMissingComposition: () => htmlSources?.markUnknown(),
+    onMissingComposition: () => { allCompositionsResolved = false; htmlSources?.markUnknown(); },
   });
 
   // Inline local classic <script src="..."> scripts from VirtualProjectReader.
@@ -849,6 +858,9 @@ export async function bundlePreviewInMemory(
 
   emitMountedModuleScripts(document, subCompResult.importMaps, subCompResult.moduleScripts);
   emitRootCompositionVariableStyles(document, subCompResult.variablesByComp);
+  // A composition tree can be CSS-only even though rebinding the root timeline is unsupported.
+  const declarativePlacement = Boolean(htmlSources && !canRebindTiming && allCompositionsResolved &&
+    hasOnlyDeclarativeMarkup(document, runtimeUrl));
 
   // Coalesce head styles & dedupe @font-face rules
   const allHeadStyles = [...document.querySelectorAll('head style')];
@@ -904,6 +916,8 @@ export async function bundlePreviewInMemory(
     bridgeOrigin: options.bridgeOrigin,
     studioOrigin: options.studioOrigin,
     canRebindTiming,
+    declarativePlacement,
+    smallMountedSources: [...smallMountedSources],
     htmlSources: htmlSources?.paths(),
   });
   html = addScenePartsManifest(html, [`meta[name="${PROJECT_SIGNATURE_META}"]`]);

@@ -10,12 +10,12 @@ import { MAX_PEER_PREVIEW_SOURCE_LENGTH, PREVIEW_ATTRIBUTES, canPatchPreviewAttr
 type FileSnapshot = { content: string; version: string };
 
 // A WindowProxy survives navigation. Bind a request to the document that acknowledged the handshake.
-const documents = new WeakMap<HTMLIFrameElement, { token: string; id: string; canRebind: boolean; liveEdits: PreviewLiveEdits; timingFile?: { path: string; version: string } }>();
-export function rememberPeerTimingDocument(frame: HTMLIFrameElement, token: string | null, timingId: unknown, styleId?: unknown, liveEdits: PreviewLiveEdits = {}): void {
+const documents = new WeakMap<HTMLIFrameElement, { token: string; id: string; canRebind: boolean; liveEdits: PreviewLiveEdits; mountedVersions: Map<string, string>; timingFile?: { path: string; version: string } }>();
+export function rememberPeerTimingDocument(frame: HTMLIFrameElement, token: string | null, timingId: unknown, styleId?: unknown, liveEdits: PreviewLiveEdits = {}, mountedVersions?: Record<string, string>): void {
   const id = timingId ?? styleId;
   if (token && typeof id === "string" && id.length > 0 && id.length <= 64) {
     const known = documents.get(frame);
-    if (known?.id !== id || known.token !== token) documents.set(frame, { token, id, canRebind: id === timingId, liveEdits });
+    if (known?.id !== id || known.token !== token) documents.set(frame, { token, id, canRebind: id === timingId, liveEdits, mountedVersions: new Map(Object.entries(mountedVersions ?? {})) });
   }
   else documents.delete(frame);
 }
@@ -33,6 +33,11 @@ export function hasPeerLiveEdit(frame: HTMLIFrameElement, capability: keyof Prev
 export function acceptsTimingManifest(frame: HTMLIFrameElement, path: unknown, version: unknown): boolean {
   const expected = documents.get(frame)?.timingFile;
   return !expected || path !== expected.path || version === expected.version;
+}
+
+/** Only the small child files actually compiled into this document have a pinned baseline. */
+export function mountedPeerFileVersion(frame: HTMLIFrameElement, path: string) {
+  return documents.get(frame)?.mountedVersions.get(path);
 }
 
 export function hasScriptedStylePreview(frame: HTMLIFrameElement) {
@@ -204,6 +209,7 @@ export async function tryApplyPeerChanges(
     }
     if (await paint !== true || documents.get(frame) !== document || !isCurrent()) return false;
     if (draftId) return true;
+    if (!temporary && document.mountedVersions.has(update.path)) document.mountedVersions.set(update.path, current.version);
     // The HTML attribute changes defaultMuted. The runtime combines per-clip mute
     // with this window's independent monitor preference on a set-muted message.
     if (changes.some(change => change.attributes.some(([name]) => name === "muted"))) {
