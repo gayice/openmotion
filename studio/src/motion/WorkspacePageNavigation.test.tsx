@@ -2119,12 +2119,14 @@ it.each([
     await mount();
     const banner = () => container.querySelector('aside[aria-label="Black Friday campaign banner"]');
     expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
 
     await click('Motion Studio');
     expect(banner()).not.toBeNull();
 
     await click('Explore');
     expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
 
     await click('Design Studio');
     expect(banner()).not.toBeNull();

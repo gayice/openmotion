@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { WorkspaceChromeContext, type WorkspaceChrome } from './WorkspaceChromeContext';
-import { BLACK_FRIDAY_HERO_ENDS_AT, BLACK_FRIDAY_HERO_STARTS_AT } from './campaignAttribution';
+import { BLACK_FRIDAY_HERO_ENDS_AT, BLACK_FRIDAY_HERO_STARTS_AT, useExploreCampaign } from './campaignAttribution';
 
 vi.mock('./tracking', () => ({ trackMotion: vi.fn(async () => 'queued') }));
 vi.mock('./useMediaCatalog', () => ({
@@ -59,12 +59,15 @@ afterEach(() => {
 });
 
 function renderExplore(onModelHub = vi.fn()) {
-  act(() => root.render(
-    <I18nProvider initialLocale="zh-CN">
+  function ExploreTestPage() {
+    const filters = { community: null, medium: null };
+    const campaign = useExploreCampaign(filters);
+    return <I18nProvider initialLocale="zh-CN">
       <WorkspaceChromeContext.Provider value={chrome}>
         <ExploreStudios
           active
-          filters={{ community: null, medium: null }}
+          campaign={campaign}
+          filters={filters}
           onNavigate={vi.fn()}
           onChooseStudio={vi.fn()}
           onSelectDesignScene={vi.fn()}
@@ -79,8 +82,9 @@ function renderExplore(onModelHub = vi.fn()) {
           onMcp={vi.fn()}
         />
       </WorkspaceChromeContext.Provider>
-    </I18nProvider>,
-  ));
+    </I18nProvider>;
+  }
+  act(() => root.render(<ExploreTestPage />));
   return { onModelHub };
 }
 

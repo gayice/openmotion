@@ -34,7 +34,7 @@ import { GITHUB_REPOSITORY } from './githubRepository';
 import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
-import { dismissBannerToday, shouldShowBlackFridayBanner, useBlackFridayHeroActive, useMinuteCondition } from './campaignAttribution';
+import { dismissBannerToday, shouldShowBlackFridayBanner, useExploreCampaign, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -236,8 +236,8 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const [narrow, setNarrow] = useState(() => window.innerWidth < 768);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [bfBannerShown, setBfBannerShown] = useMinuteCondition(shouldShowBlackFridayBanner);
-  const [heroCampaignActive] = useBlackFridayHeroActive();
-  const exploreShowsHero = heroCampaignActive && page.explore && !page.community && !page.medium && !templatesPage && !settings;
+  const exploreCampaign = useExploreCampaign(lastExplore.current);
+  const exploreShowsHero = exploreCampaign.showHero && page.explore && !templatesPage && !settings;
   const bfBannerVisible = !hostChrome && bfBannerShown && !exploreShowsHero;
   const closeBfBanner = useCallback(() => { dismissBannerToday(); setBfBannerShown(false); }, [setBfBannerShown]);
   const expireBfBanner = useCallback(() => setBfBannerShown(false), [setBfBannerShown]);
@@ -584,6 +584,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         templatesPage={templatesPage}
         connectionsOpen={connectionsOpen}
         lastExplore={lastExplore.current}
+        exploreCampaign={exploreCampaign}
         motionEditorDisabled={motionEditorDisabled}
         motionTemplatesOpen={motionTemplatesOpen}
         standaloneMcp={standaloneMcp}

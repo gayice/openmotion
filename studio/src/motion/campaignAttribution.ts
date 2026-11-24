@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { ExploreFilters } from './workspacePageRouting';
 
 /**
  * Black Friday campaign links from OpenMotion to the OpenDesign Pricing page.
@@ -91,7 +92,12 @@ export function useMinuteCondition(read: () => boolean) {
 const readBlackFridayActive = () => blackFridayActive();
 export const useBlackFridayActive = () => useMinuteCondition(readBlackFridayActive)[0];
 const readBlackFridayHeroActive = () => blackFridayHeroActive();
-export const useBlackFridayHeroActive = () => useMinuteCondition(readBlackFridayHeroActive);
+export function useExploreCampaign(filters: ExploreFilters) {
+  const [active, setActive] = useMinuteCondition(readBlackFridayHeroActive);
+  const expire = useCallback(() => setActive(false), [setActive]);
+  return { showHero: active && !filters.community && !filters.medium, expire };
+}
+export type ExploreCampaign = ReturnType<typeof useExploreCampaign>;
 export const shouldShowBlackFridayBanner = () => blackFridayActive() && !bannerDismissedToday();
 
 /** Where the click happened: the top campaign banner or the header Pricing entry. */

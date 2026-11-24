@@ -1,3 +1,4 @@
+import type { ExploreCampaign } from '../motion/campaignAttribution';
 import { Suspense, type ReactNode, type RefObject } from 'react';
 import { creativeStudios, type CreativeStudio, type TechniqueStudio } from '../../../shared/studio-catalog';
 import { findScenario, type ScenarioId } from '../../../shared/scenarios';
@@ -59,6 +60,7 @@ export type RouteViewportProps = {
   templatesPage: boolean;
   connectionsOpen: boolean;
   lastExplore: ExploreFilters;
+  exploreCampaign: ExploreCampaign;
   motionEditorDisabled: boolean;
   motionTemplatesOpen: boolean;
   standaloneMcp: boolean;
@@ -102,6 +104,7 @@ export function RouteViewport({
   templatesPage,
   connectionsOpen,
   lastExplore,
+  exploreCampaign,
   motionEditorDisabled,
   motionTemplatesOpen,
   standaloneMcp,
@@ -175,6 +178,7 @@ export function RouteViewport({
       >
         <RouteSurface>
           <LazyExploreStudios
+            campaign={exploreCampaign}
             initialTemplateCollection={page.templateCollection}
             onModel={openModelFromPage}
             onModelHub={openModelHub}

@@ -29,7 +29,7 @@ import { gptImageStory, seedanceStory } from './exploreModelStories';
 import { ExploreSpotlight, featuredSceneIds } from './ExploreSpotlight';
 import { ExploreBlackFridayHero } from './ExploreBlackFridayHero';
 import { ExploreBlackFridaySpotlight } from './ExploreBlackFridaySpotlight';
-import { useBlackFridayHeroActive } from './campaignAttribution';
+import type { ExploreCampaign } from './campaignAttribution';
 import { SkillMedia } from './SkillMedia';
 import { ExploreShelf } from './ExploreShelf';
 import { TemplateGalleryCard, TemplatePoster, TopBrandsLabel } from './TemplateGalleryCard';
@@ -74,6 +74,7 @@ const featuredSkills = Array.from({ length: Math.max(...coveredByCategory.map(li
   coveredByCategory.flatMap(list => list[round] ?? [])).flat().slice(0, templatePreviewLimit);
 
 type ExploreProps = {
+  campaign: ExploreCampaign;
   initialTemplateCollection?: TemplateCollection | null;
   onSkill: (id: string) => void;
   onChooseStudio: (studio: CreativeStudio) => void;
@@ -603,11 +604,9 @@ export function ExploreStudios(props: ExploreProps) {
   const { openLibrary, openSkills } = useWorkspaceChrome();
   const root = useRef<HTMLElement>(null);
   const [firstPages] = useState(() => new Map<string, TemplatePage>());
-  const [heroCampaignActive, setHeroCampaignActive] = useBlackFridayHeroActive();
-  const expireHeroCampaign = useCallback(() => setHeroCampaignActive(false), [setHeroCampaignActive]);
+  const { showHero: showBlackFridayHero, expire: expireHeroCampaign } = props.campaign;
   const community = exploreCommunities.find(item => item.id === props.filters.community);
   const isExploreHome = !community && !props.filters.medium;
-  const showBlackFridayHero = isExploreHome && heroCampaignActive;
   return <main ref={root} className="om-explore">
     {showBlackFridayHero && <ExploreBlackFridayHero active={props.active} onExpire={expireHeroCampaign} />}
     <div className="om-discovery-page">
