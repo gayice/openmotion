@@ -40,6 +40,7 @@ interface DragResult extends IsolatedSourceTarget {
   top: number;
   makeRelative: boolean;
   position?: MeasuredCanvasPosition;
+  translated?: boolean;
   corner?: Corner;
   width?: number;
   height?: number;
@@ -54,6 +55,10 @@ function validResult(result: DragResult | null): result is DragResult {
 function positionPatch(result: DragResult) {
   const { sourceFile, ifMatch, target } = isolatedPatchTarget(result);
   const {left, top, width, height, makeRelative, corner} = result;
+  if (result.translated && result.position) {
+    const operations = [{ type: "inline-style" as const, property: "translate", value: left + "px " + top + "px" }];
+    return { sourceFile, ifMatch, patches: [{ target, operations }], position: result.position };
+  }
   const box = {left, top, width, height, makeRelative, corner};
   return { sourceFile, ifMatch, patches: [{ target, operations:canvasBoxOperations(box) }], box, ...(result.position && {position:result.position}) };
 }

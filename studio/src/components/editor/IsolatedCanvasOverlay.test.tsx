@@ -119,6 +119,19 @@ it("captures a scaled drag, commits once on release and uses the shown file vers
   expect(messages.at(-1)).toMatchObject({ phase: "commit", gestureId: messages[0]?.gestureId, changed: true });
 });
 
+it("persists a measured CSS translation without assigning layout coordinates", async () => {
+  pointer("pointerdown", 60);
+  pointer("pointermove", 90);
+  pointer("pointerup", 90);
+  await reply("start", null);
+  const position = { x: 12, y: 34, time: 1 };
+  await reply("finish", { ...result, translated: true, position });
+  const [batches] = state.commitDomEditPatchBatches.mock.calls[0]!;
+  expect(batches[0]).toMatchObject({ position, patches: [{ target: { id: "title" },
+    operations: [{ type: "inline-style", property: "translate", value: "12px 34px" }] }] });
+  expect(batches[0]).not.toHaveProperty("box");
+});
+
 it.each(["pointercancel", "lostpointercapture"])("cancels before release on %s", async type => {
   pointer("pointerdown", 60);
   pointer("pointermove", 90);
