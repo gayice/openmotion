@@ -67,12 +67,40 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     if(!(duration>0)) return {status:'loading',completed:0,total:0,failed:[]};
     return ensureAssetTracker(function(snapshot){ post('asset-readiness',snapshot); }).snapshot();
   }
+  function mediaTimingWindow(node){
+    var start=0, end=Infinity, chain=[], owner=node;
+    while(owner){ if(owner.hasAttribute && owner.hasAttribute('data-start')) chain.push(owner); owner=owner.parentElement; }
+    for(var i=chain.length-1;i>=0;i--){
+      start+=Number(chain[i].getAttribute('data-start'))||0;
+      var dur=Number(chain[i].getAttribute('data-duration'));
+      if(dur>0) end=Math.min(end,start+dur);
+    }
+    return {start:start,end:end};
+  }
+  function isMediaBuffering(time){
+    if(isCaptureMode) return false;
+    var nodes=document.querySelectorAll('video,audio');
+    for(var i=0;i<nodes.length;i++){
+      var node=nodes[i];
+      if(node.hasAttribute('data-hf-clip-hidden') || (node.closest && node.closest('[data-hyperframes-ignore]'))) continue;
+      if(node.error || node.networkState===3) continue;
+      if(!node.currentSrc && !node.getAttribute('src') && !(node.querySelector && node.querySelector('source[src]'))) continue;
+      var win=mediaTimingWindow(node);
+      if(time < win.start - 0.05 || time >= win.end) continue;
+      if(node.readyState < 3) return true;
+    }
+    return false;
+  }
+  var lastReportedBuffering=false;
   function timeline(includeManifest){
     var p=player();
     var currentTime=p&&typeof p.getTime==='function'?Number(p.getTime())||0:0;
     var duration=p&&typeof p.getDuration==='function'?Number(p.getDuration())||0:0;
+    var buffering=duration>0?isMediaBuffering(currentTime):false;
+    lastReportedBuffering=buffering;
     return {currentTime:currentTime,duration:duration,firstFrame:isCaptureMode?'ready':(duration>0?visualFrameStatus(currentTime):'loading'),
       assets:assetState(duration),
+      buffering:buffering,
       isPlaying:p&&typeof p.isPlaying==='function'?p.isPlaying()===true:false,
       width:window.__clipManifest&&window.__clipManifest.compositionWidth, height:window.__clipManifest&&window.__clipManifest.compositionHeight,
       fps:window.__clipManifest&&window.__clipManifest.fps,
@@ -344,6 +372,21 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
         bootPoll=null;
       }
     },25);
+  }
+  if(!isCaptureMode){
+    var syncBufferingState=function(event){
+      var target=event&&event.target;
+      if(!target || (target.tagName!=='VIDEO' && target.tagName!=='AUDIO')) return;
+      var p=player();
+      var duration=p&&typeof p.getDuration==='function'?Number(p.getDuration())||0:0;
+      if(!(duration>0)) return;
+      var currentTime=p&&typeof p.getTime==='function'?Number(p.getTime())||0:0;
+      var next=isMediaBuffering(currentTime);
+      if(next!==lastReportedBuffering) post('timeline-state',timeline());
+    };
+    ['waiting','playing','canplay','canplaythrough','error'].forEach(function(type){
+      document.addEventListener(type,syncBufferingState,true);
+    });
   }
   setInterval(function(){ if(document.visibilityState!=='hidden' && !(isCaptureMode && durationBootAnnounced)) post('timeline-state',timeline()); },500);
 `);

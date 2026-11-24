@@ -102,6 +102,7 @@ export function useFileManager({
     projectDir,
     fileTree,
     fileTreeLoaded,
+    fileTreeError,
     refreshFileTree,
     compositions,
     assets,
@@ -758,6 +759,7 @@ export function useFileManager({
     projectDir,
     fileTree,
     fileTreeLoaded,
+    fileTreeError,
 
     // Refs
     editingPathRef,

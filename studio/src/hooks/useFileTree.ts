@@ -58,6 +58,7 @@ export interface FileTreeRefreshOptions {
 interface FetchedFileTree {
   projectId: string;
   loaded: boolean;
+  error?: boolean;
   fileTree: string[];
   compositionPaths: string[];
   projectDir: string | null;
@@ -116,6 +117,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
   const compositionPaths = current?.compositionPaths ?? EMPTY_FILE_LIST;
   const projectDir = current?.projectDir ?? null;
   const fileTreeLoaded = current?.loaded ?? false;
+  const fileTreeError = current?.error ?? false;
 
   const rememberProjectTree = useCallback((entry: FetchedFileTree) => {
     const cache = cacheByProjectRef.current;
@@ -162,6 +164,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
         const nextEntry: FetchedFileTree = {
           projectId,
           loaded: true,
+          error: false,
           fileTree: data.files ?? [],
           compositionPaths: data.compositions ?? [],
           projectDir: typeof data.dir === "string" ? data.dir : null,
@@ -179,7 +182,11 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
       .catch(() => {
         if (!cancelled) {
           cacheByProjectRef.current.delete(projectId);
-          setFetched((prev) => (prev?.projectId === projectId ? { ...prev, loaded: true } : prev));
+          setFetched((prev) =>
+            prev?.projectId === projectId
+              ? { ...prev, loaded: true, error: true }
+              : { projectId, loaded: true, error: true, fileTree: [], compositionPaths: [], projectDir: null },
+          );
         }
       });
     return () => {
@@ -199,6 +206,13 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     // A verified import refresh must finish even if an external file event also
     // refreshes the tree. Ordinary background refreshes remain cancellable.
     refreshAbortRef.current = options ? null : controller;
+    if (!options) {
+      setFetched((prev) =>
+        prev?.projectId === pid && prev.error && prev.fileTree.length === 0
+          ? { ...prev, loaded: false, error: false }
+          : prev,
+      );
+    }
     let data: TreeListing;
     try {
       data = await readTreeListing(pid, controller.signal);
@@ -209,6 +223,13 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
       if (!options && err instanceof DOMException && err.name === "AbortError") return;
       if (!failureReportedRef.current) reportRefreshFailure(err);
       failureReportedRef.current = true;
+      if (!options && projectIdRef.current === pid) {
+        setFetched((prev) =>
+          prev?.projectId === pid
+            ? { ...prev, loaded: true, error: prev.fileTree.length === 0 ? true : prev.error }
+            : prev,
+        );
+      }
       if (options) throw err;
       return;
     }
@@ -227,6 +248,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
         const nextEntry: FetchedFileTree = {
           ...prev,
           loaded: true,
+          error: false,
           projectDir: typeof data.dir === "string" ? data.dir : prev.projectDir,
           fileTree: data.files ?? prev.fileTree,
           // A response that omits `compositions` must not wipe out a
@@ -370,6 +392,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     projectDir,
     fileTree,
     fileTreeLoaded,
+    fileTreeError,
     refreshFileTree,
     compositions: compositionPaths,
     assets,

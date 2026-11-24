@@ -661,6 +661,40 @@ describe("ThumbnailScheduler", () => {
     expect(disposeQueued).toHaveBeenCalledTimes(1);
     expect(scheduler.getSnapshot(queuedReq).status).toBe("idle");
   });
+
+  it("re-queues failed leased entries in place via retryFailed without waiting for failure TTL", async () => {
+    const scheduler = new ThumbnailScheduler();
+    let attempt = 0;
+    const load = vi.fn(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error("transient capture timeout");
+      return result("recovered");
+    });
+    const req = request("comp-retry", load, "visible", {
+      projectId: "project-a",
+      kind: "composition",
+      compositionPath: "compositions/hero.html",
+    });
+
+    const lease = scheduler.acquire(req, vi.fn());
+    await vi.waitFor(() => expect(scheduler.getSnapshot(req).status).toBe("error"));
+    expect(load).toHaveBeenCalledTimes(1);
+
+    // Non-matching path leaves the entry untouched.
+    expect(scheduler.retryFailed("project-a", "compositions/other.html")).toBe(0);
+    expect(scheduler.getSnapshot(req).status).toBe("error");
+
+    // Matching path re-queues and recovers immediately.
+    expect(scheduler.retryFailed("project-a", "./compositions/hero.html")).toBe(1);
+    await vi.waitFor(() =>
+      expect(scheduler.getSnapshot(req)).toMatchObject({
+        status: "ready",
+        value: { url: "recovered" },
+      }),
+    );
+    expect(load).toHaveBeenCalledTimes(2);
+    lease.release();
+  });
 });
 
 describe("createThumbnailKey", () => {

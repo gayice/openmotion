@@ -317,6 +317,36 @@ export class ThumbnailScheduler {
     }
   }
 
+  /**
+   * Re-queue failed thumbnail entries for `projectId` (optionally scoped to one normalized
+   * `compositionPath`) so active consumers retry in place without waiting for failure TTL.
+   */
+  retryFailed(projectId: string, compositionPath?: string): number {
+    const normalizedTarget = compositionPath?.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+    let retried = 0;
+    for (const [key, entry] of this.entries) {
+      if (entry.request.projectId !== projectId || entry.state !== "error") continue;
+      if (normalizedTarget !== undefined) {
+        const entryPath = entry.request.compositionPath?.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+        if (entryPath !== normalizedTarget) continue;
+      }
+      retried++;
+      if (entry.leases.size === 0) {
+        this.deleteEntry(key, entry);
+        continue;
+      }
+      entry.state = "queued";
+      entry.error = undefined;
+      entry.failedAt = undefined;
+      entry.preempted = false;
+      entry.lastAccess = this.nextSequence++;
+      entry.snapshot = Object.freeze({ status: "queued" });
+      this.notify(entry);
+    }
+    if (retried > 0) this.pump();
+    return retried;
+  }
+
   getDiagnostics(): ThumbnailSchedulerDiagnostics {
     let queued = 0;
     let active = 0;

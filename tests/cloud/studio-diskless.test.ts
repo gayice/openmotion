@@ -1178,6 +1178,45 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.match(await changed.text(), /other\.png/);
   });
 
+  it('serves unchanged lint and 304 revalidations from cache without reloading virtual projects', async (t) => {
+    const env = createStudioTestEnv();
+    const { projectId } = await env.workspace.createProject(env.auth);
+    const html = '<html><body><div data-composition-id="main"><img src="missing.png"></div></body></html>';
+    await env.files.commitChanges(env.auth, {
+      projectId, ops: [{ op: 'upsert_text', path: 'index.html', content: html }],
+    });
+    const loads = t.mock.method(env.files, 'loadVirtualProject');
+    const view = `/api/projects/${projectId}/lint?view=findings`;
+
+    const first = await env.studioApp.request(view);
+    assert.equal(first.status, 200);
+    assert.equal(loads.mock.callCount(), 1);
+    const etagHeader = first.headers.get('etag');
+    assert.ok(etagHeader);
+
+    // Repeated 200 and 304 hits against the same file+metadata snapshot skip loadVirtualProject.
+    const second = await env.studioApp.request(view);
+    assert.equal(second.status, 200);
+    assert.equal(second.headers.get('etag'), etagHeader);
+    assert.equal(loads.mock.callCount(), 1);
+
+    const notModified = await env.studioApp.request(view, { headers: { 'If-None-Match': etagHeader } });
+    assert.equal(notModified.status, 304);
+    assert.equal(loads.mock.callCount(), 1);
+
+    // Concurrent requests for a new snapshot coalesce into a single virtual project load.
+    await env.files.commitChanges(env.auth, {
+      projectId, ops: [{ op: 'upsert_text', path: 'index.html', content: html.replace('missing.png', 'other.png') }],
+    });
+    const [concurrentA, concurrentB] = await Promise.all([
+      env.studioApp.request(view),
+      env.studioApp.request(view),
+    ]);
+    assert.equal(concurrentA.status, 200);
+    assert.equal(concurrentB.status, 200);
+    assert.equal(loads.mock.callCount(), 2);
+  });
+
   it('splits a legacy anonymous clip using its preview-stamped hf-id', async () => {
     const env = createStudioTestEnv();
     const { projectId } = await env.workspace.createProject(env.auth);
