@@ -76,11 +76,11 @@ export const PREVIEW_CANVAS_DRAG = `
     return rect.width > 0 && rect.height > 0;
   }
 
-  function startDrag(message) {
+  function startDrag(message, knownTarget) {
     if (drag) return null;
-    const hit = document.elementFromPoint(message.x * innerWidth, message.y * innerHeight);
     const corner = ['nw','ne','sw','se'].includes(message.corner) ? message.corner : null;
-    const element = corner ? (message.target ? inspectorElement(message.target) : picked) : hit?.closest('[id],[data-hf-id]');
+    const element = knownTarget || (corner ? (message.target ? inspectorElement(message.target) : picked)
+      : document.elementFromPoint(message.x * innerWidth, message.y * innerHeight)?.closest('[id],[data-hf-id]'));
     if (!(element instanceof HTMLElement) || element === document.body || element === document.documentElement ||
         element.matches('[data-composition-id],[data-composition-src],[data-hf-scene]') ||
         element.closest('[data-timeline-locked]')) return null;

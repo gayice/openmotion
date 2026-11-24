@@ -285,18 +285,19 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       if(message.type==='layer-family'){ respond(requestId,previewLayerFamily(message)); return; }
       if(message.type==='layer-select'){ respond(requestId,selectPreviewLayer(message)); return; }
       if(message.type==='inline-text'){
-        var textTarget=editInlineText(message);
-        if(message.phase==='pick') respond(requestId,textTarget);
+        var textTarget=sceneInlineText(message);
+        if(message.phase==='pick') Promise.resolve(textTarget).then(value => respond(requestId,value), () => respond(requestId,null));
         return;
       }
       if(message.type==='canvas-drag'){
-        var result=canvasDrag(message);
+        var result=sceneCanvasDrag(message);
         if(message.phase==='start'){
           const started=drag?.id===message.gestureId ? drag : null;
           const hit=started?.element || document.elementFromPoint(message.x * innerWidth,message.y * innerHeight)?.closest('[data-hf-id],[id]');
           if(hit && hit!==document.body && hit!==document.documentElement) reportLayerSelection(hit, started?.selection || describe(hit));
+          respond(requestId,result);
         }
-        if(message.phase==='start' || message.phase==='finish') respond(requestId,result);
+        if(message.phase==='finish') Promise.resolve(result).then(value => respond(requestId,value), () => respond(requestId,null));
         return;
       }
       if(message.type==='pick-mode'){
