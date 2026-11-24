@@ -34,7 +34,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: desktop-signed-config-${{ github.event_name == 'push' && 'test-publish' || format('{0}-{1}', inputs.channel, inputs.publish) }}
+  group: desktop-signed-config-${{ github.event_name == 'push' && 'test-publish' || format('{0}-{1}', inputs.channel, inputs.publish && 'publish' || 'dry-run') }}
   cancel-in-progress: false
 
 jobs:

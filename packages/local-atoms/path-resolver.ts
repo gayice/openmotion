@@ -60,7 +60,9 @@ function defaultIsExecutableFile(filePath: string, platform: HostPlatform): bool
   try {
     const stats = statSync(filePath);
     if (!stats.isFile()) return false;
-    if (platform === 'win32') return true;
+    if (platform === 'win32') {
+      return /\.(?:exe|cmd|bat|com)$/i.test(filePath);
+    }
     accessSync(filePath, fsConstants.X_OK);
     return true;
   } catch {
@@ -358,13 +360,17 @@ export class PathResolver {
     if (hasExtension) {
       return [binaryName];
     }
-    const rawPathExt = this.env.PATHEXT || '.COM;.EXE;.BAT;.CMD';
+    const rawPathExt = this.env.PATHEXT || '.EXE;.CMD;.BAT;.COM';
     const exts = rawPathExt
       .split(';')
       .map(ext => ext.trim().toLowerCase())
-      .filter(ext => ext.startsWith('.'));
-    const normalizedExts = exts.length > 0 ? exts : ['.exe', '.cmd', '.bat', '.com'];
-    return [binaryName, ...normalizedExts.map(ext => `${binaryName}${ext}`)];
+      .filter(ext => /^\.(?:exe|cmd|bat|com)$/.test(ext));
+    const ordered = exts.length > 0 ? exts : ['.exe', '.cmd', '.bat', '.com'];
+    // Prefer native .exe over .cmd/.bat shims whenever both exist in the same directory.
+    const prioritized = ordered.includes('.exe')
+      ? ['.exe', ...ordered.filter(ext => ext !== '.exe')]
+      : ordered;
+    return prioritized.map(ext => `${binaryName}${ext}`);
   }
 
   private async computeSearchDirs(): Promise<string[]> {

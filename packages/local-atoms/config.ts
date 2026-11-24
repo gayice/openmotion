@@ -14,12 +14,14 @@
 
 import { randomBytes } from 'node:crypto';
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -166,8 +168,21 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 function writeAtomicFile(targetPath: string, content: string): void {
   const dir = path.dirname(targetPath);
   mkdirSync(dir, { recursive: true });
+  let targetMode = 0o600;
+  try {
+    if (existsSync(targetPath)) {
+      targetMode = statSync(targetPath).mode & 0o777;
+    }
+  } catch {
+    targetMode = 0o600;
+  }
   const tmpPath = `${targetPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
-  writeFileSync(tmpPath, content, 'utf8');
+  writeFileSync(tmpPath, content, { encoding: 'utf8', mode: 0o600 });
+  try {
+    chmodSync(tmpPath, targetMode);
+  } catch {
+    // Ignore chmod failures on filesystems/platforms that do not support POSIX modes.
+  }
   renameSync(tmpPath, targetPath);
 }
 
@@ -605,6 +620,101 @@ export function parseTomlMcpEntry(
   };
 }
 
+function findTomlValueEndLine(lines: readonly string[], startIdx: number, rawValue: string): number {
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let multilineQuote: '"""' | "'''" | null = null;
+
+  const scanSegment = (segment: string) => {
+    let inSingle = false;
+    let inDouble = false;
+    for (let i = 0; i < segment.length; i += 1) {
+      const ch = segment[i]!;
+      if (multilineQuote) {
+        if (multilineQuote === '"""' && ch === '\\') {
+          i += 1;
+          continue;
+        }
+        if (segment.startsWith(multilineQuote, i)) {
+          multilineQuote = null;
+          i += 2;
+        }
+        continue;
+      }
+      if (inDouble) {
+        if (ch === '\\') {
+          i += 1;
+        } else if (ch === '"') {
+          inDouble = false;
+        }
+        continue;
+      }
+      if (inSingle) {
+        if (ch === "'") {
+          inSingle = false;
+        }
+        continue;
+      }
+      if (ch === '#') {
+        break;
+      }
+      if (segment.startsWith('"""', i)) {
+        multilineQuote = '"""';
+        i += 2;
+        continue;
+      }
+      if (segment.startsWith("'''", i)) {
+        multilineQuote = "'''";
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = true;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = true;
+        continue;
+      }
+      if (ch === '[') bracketDepth += 1;
+      else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+      else if (ch === '{') braceDepth += 1;
+      else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+    }
+  };
+
+  scanSegment(rawValue);
+  let idx = startIdx;
+  while (idx + 1 < lines.length && (multilineQuote !== null || bracketDepth > 0 || braceDepth > 0)) {
+    idx += 1;
+    scanSegment(lines[idx]!);
+  }
+  return idx;
+}
+
+function validateMergedTomlBasicStructure(text: string): { ok: true } | { ok: false; reason: string } {
+  const lines = text.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i]!;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      i += 1;
+      continue;
+    }
+    if (parseTomlSectionHeader(line)) {
+      i += 1;
+      continue;
+    }
+    const kv = parseTomlKeyValueLine(line);
+    if (!kv) {
+      return { ok: false, reason: `Malformed TOML line ${i + 1}: ${trimmed.slice(0, 80)}` };
+    }
+    i = findTomlValueEndLine(lines, i, kv.rawValue) + 1;
+  }
+  return { ok: true };
+}
+
 export function upsertTomlMcpEntry(
   rawText: string | null,
   sectionPath: string,
@@ -689,18 +799,37 @@ export function upsertTomlMcpEntry(
       const indent = indentMatch ? indentMatch[1]! : '';
       lines[targetUrlLineIdx] = `${indent}url = "${escapedUrl}"`;
     } else {
-      // Replacing a legacy local stdio section: strip command/args lines in this section before adding url.
+      // Replacing a legacy local stdio section: strip complete command/args value spans
+      // (including multiline arrays and multiline strings) before adding url.
       let sectionEnd = targetHeaderLineIdx + 1;
       while (sectionEnd < lines.length) {
-        const trimmedLine = lines[sectionEnd]!.trim();
-        if (trimmedLine.startsWith('[')) break;
-        sectionEnd += 1;
-      }
-      const preservedLines = lines.slice(targetHeaderLineIdx + 1, sectionEnd).filter(line => {
+        const line = lines[sectionEnd]!;
+        if (parseTomlSectionHeader(line)) break;
         const kv = parseTomlKeyValueLine(line);
-        if (!kv) return true;
-        return kv.key !== 'command' && kv.key !== 'args';
-      });
+        if (kv) {
+          sectionEnd = findTomlValueEndLine(lines, sectionEnd, kv.rawValue) + 1;
+        } else {
+          sectionEnd += 1;
+        }
+      }
+
+      const preservedLines: string[] = [];
+      let cursor = targetHeaderLineIdx + 1;
+      while (cursor < sectionEnd) {
+        const line = lines[cursor]!;
+        const kv = parseTomlKeyValueLine(line);
+        if (kv) {
+          const endIdx = Math.min(sectionEnd - 1, findTomlValueEndLine(lines, cursor, kv.rawValue));
+          if (kv.key !== 'command' && kv.key !== 'args') {
+            preservedLines.push(...lines.slice(cursor, endIdx + 1));
+          }
+          cursor = endIdx + 1;
+        } else {
+          preservedLines.push(line);
+          cursor += 1;
+        }
+      }
+
       lines.splice(
         targetHeaderLineIdx + 1,
         sectionEnd - (targetHeaderLineIdx + 1),
@@ -724,6 +853,14 @@ export function upsertTomlMcpEntry(
   }
 
   const joined = lines.join(eol) + (hadTrailingNewline ? eol : '');
+  const structureCheck = validateMergedTomlBasicStructure(joined);
+  if (!structureCheck.ok) {
+    return {
+      ok: false,
+      code: 'EXEC_FAILED',
+      reason: `Refusing to write malformed TOML: ${structureCheck.reason}`,
+    };
+  }
   return {
     ok: true,
     content: joined,

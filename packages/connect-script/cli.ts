@@ -836,16 +836,26 @@ export async function runConnectCli(
       output: out,
     });
 
-  let confirmedInCli = false;
+  const confirmedFingerprints = new Set<string>();
   const wrappedConfirm: ConfirmFn = async request => {
-    // Avoid double-prompting when `runConnectFlow` already obtained explicit approval
-    // for `CONNECT_FEATURE_ID` in this interactive CLI invocation.
-    if (confirmedInCli && request.featureId === CONNECT_FEATURE_ID) {
+    // Only deduplicate duplicate prompts within one-shot `connect` mode, and ONLY
+    // when featureId, featureVersion, and all concrete facts match verbatim.
+    // In long-lived `--serve` mode, always delegate to `confirm` so changed feature
+    // versions or facts after a `signedConfig.refresh` never bypass user approval.
+    if (args.mode === 'serve') {
+      return confirm(request);
+    }
+    const fingerprint = JSON.stringify({
+      featureId: request.featureId,
+      featureVersion: request.featureVersion,
+      facts: request.facts,
+    });
+    if (confirmedFingerprints.has(fingerprint)) {
       return true;
     }
     const accepted = await confirm(request);
-    if (accepted && request.featureId === CONNECT_FEATURE_ID) {
-      confirmedInCli = true;
+    if (accepted) {
+      confirmedFingerprints.add(fingerprint);
     }
     return accepted;
   };

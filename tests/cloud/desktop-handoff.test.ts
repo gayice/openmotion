@@ -716,5 +716,112 @@ describe('Desktop System-Browser Session Handoff API', () => {
       });
       assert.equal(retryRes.status, 401);
     });
+
+    it('rejects cross-site Origin / Sec-Fetch-Site headers on exchange while permitting native Electron calls without Origin', async () => {
+      const config = makeConfig();
+      const store = new InMemoryAuthStore();
+      const cache = new InMemoryAuthCache();
+      const seeded = store.seedWorkspace({
+        email: 'csrf@example.test',
+        displayName: 'CSRF Tester',
+        role: 'owner',
+      });
+      const browserSession = await createBrowserSession(store, {
+        userId: seeded.user.id,
+        workspaceId: seeded.workspace.id,
+      });
+
+      const app = new Hono<AuthEnv>();
+      app.route('/', createAuthRoutes({ config, store, cache }));
+
+      const { codeVerifier, codeChallenge } = generatePkcePair();
+      const redirectUri = 'http://127.0.0.1:45201/cb';
+      const startRes = await app.request(
+        buildStartUrl({
+          code_challenge: codeChallenge,
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          state: 'csrf-check',
+        }),
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` } },
+      );
+      const code = new URL(startRes.headers.get('location')!).searchParams.get('code')!;
+
+      const crossOriginRes = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://evil.example.com',
+        },
+        body: JSON.stringify({ code, codeVerifier, redirectUri }),
+      });
+      assert.equal(crossOriginRes.status, 403);
+      assert.equal(((await crossOriginRes.json()) as { code: string }).code, 'CSRF_FORBIDDEN');
+
+      const crossSiteRes = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Sec-Fetch-Site': 'cross-site',
+        },
+        body: JSON.stringify({ code, codeVerifier, redirectUri }),
+      });
+      assert.equal(crossSiteRes.status, 403);
+
+      // Legitimate Electron native exchange without Origin still succeeds because CSRF checks ran before consume.
+      const nativeRes = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, codeVerifier, redirectUri }),
+      });
+      assert.equal(nativeRes.status, 200);
+    });
+
+    it('consumes handoff codes atomically across two API instances sharing a cache', async () => {
+      const config = makeConfig();
+      const store = new InMemoryAuthStore();
+      const sharedCache = new InMemoryAuthCache();
+      const seeded = store.seedWorkspace({
+        email: 'atomic@example.test',
+        displayName: 'Atomic Tester',
+        role: 'owner',
+      });
+      const browserSession = await createBrowserSession(store, {
+        userId: seeded.user.id,
+        workspaceId: seeded.workspace.id,
+      });
+
+      const appA = new Hono<AuthEnv>();
+      appA.route('/', createAuthRoutes({ config, store, cache: sharedCache }));
+      const appB = new Hono<AuthEnv>();
+      appB.route('/', createAuthRoutes({ config, store, cache: sharedCache }));
+
+      const { codeVerifier, codeChallenge } = generatePkcePair();
+      const redirectUri = 'http://127.0.0.1:45202/cb';
+      const startRes = await appA.request(
+        buildStartUrl({
+          code_challenge: codeChallenge,
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          state: 'atomic-multi-instance',
+        }),
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` } },
+      );
+      const code = new URL(startRes.headers.get('location')!).searchParams.get('code')!;
+
+      const [resA, resB] = await Promise.all([
+        appA.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, codeVerifier, redirectUri }),
+        }),
+        appB.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, codeVerifier, redirectUri }),
+        }),
+      ]);
+      assert.deepEqual([resA.status, resB.status].sort((a, b) => a - b), [200, 401]);
+    });
   });
 });

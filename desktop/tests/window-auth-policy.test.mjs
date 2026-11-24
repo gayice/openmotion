@@ -902,6 +902,8 @@ test('K3 login chain helpers: parseStudioAuthNavigationUrl, probeDesktopHandoffS
     { switchAccount: false },
   );
   assert.equal(sanitizeAuthReturnPath('/auth/login'), undefined);
+  assert.equal(sanitizeAuthReturnPath('/\\evil.example'), undefined);
+  assert.equal(sanitizeAuthReturnPath('/%5cevil.example/ok'), '/%5cevil.example/ok');
   assert.equal(sanitizeAuthReturnPath('/explore?tab=1'), '/explore?tab=1');
   assert.equal(
     parseStudioAuthNavigationUrl('https://evil.example.com/auth/login', studioOrigin),
@@ -961,6 +963,41 @@ test('K3 login chain helpers: parseStudioAuthNavigationUrl, probeDesktopHandoffS
   const finalState = await started.completion;
   assert.equal(finalState.status, 'authenticated');
   assert.equal(receivedCredentials, 'include');
+
+  // Overlapping startLogin() calls reserve ownership before awaiting loopback bind:
+  // after cancelLogin(), neither superseded nor canceled callbacks can authenticate.
+  let exchangeCallsAfterCancel = 0;
+  const raceManager = new DesktopAuthHandoffManager({
+    studioOrigin,
+    openExternal: () => {},
+    exchangeFetch: async () => {
+      exchangeCallsAfterCancel += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, user: { id: 'u-race' }, workspaceId: 'ws-race' }),
+      };
+    },
+  });
+  const [firstAttempt, secondAttempt] = await Promise.all([
+    raceManager.startLogin(),
+    raceManager.startLogin(),
+  ]);
+  raceManager.cancelLogin();
+  for (const attempt of [firstAttempt, secondAttempt]) {
+    const cb = new URL(attempt.redirectUri);
+    cb.searchParams.set('code', 'late-code-12345678');
+    cb.searchParams.set('state', attempt.state);
+    try {
+      const cbRes = await fetch(cb.toString());
+      assert.notEqual(cbRes.status, 200);
+    } catch {
+      // Expected: loopback server already closed cleanly.
+    }
+  }
+  assert.equal(exchangeCallsAfterCancel, 0);
+  assert.equal(raceManager.getState().status, 'canceled');
+  raceManager.dispose();
   manager.dispose();
 });
 

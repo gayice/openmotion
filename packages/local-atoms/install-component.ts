@@ -932,6 +932,17 @@ export class InstallComponentAtom {
     if (!manifest) {
       return hostErr('POLICY_DENIED', `Unknown componentId in signed config: "${componentId}"`, { componentId });
     }
+    if (
+      typeof manifest.componentId !== 'string' ||
+      !SAFE_COMPONENT_ID_RE.test(manifest.componentId) ||
+      manifest.componentId !== componentId
+    ) {
+      return hostErr(
+        'POLICY_DENIED',
+        `Signed manifest componentId "${String(manifest.componentId)}" is invalid or does not match "${componentId}"`,
+        { componentId, manifestComponentId: manifest.componentId },
+      );
+    }
 
     const versionCheck = validateTypedPlaceholderValue('semver', manifest.minVersion);
     if (!versionCheck.ok) {

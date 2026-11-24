@@ -871,4 +871,46 @@ describe('CLI Argument Parsing & Orchestration', () => {
       assert.equal(res.error.code, 'UNSUPPORTED');
     }
   });
+
+  it('does not auto-approve changed feature definitions in --serve mode', async () => {
+    const out = createTextSink();
+    const errOut = createTextSink();
+    const promptCalls: Array<{ featureId: string; featureVersion: string }> = [];
+    let capturedConfirm: ((req: HostConfirmationRequest) => Promise<boolean>) | undefined;
+
+    const exitCode = await runConnectCli(['--serve', '--port', '0', '--channel', 'stable'], {
+      createBridge: async opts => {
+        capturedConfirm = opts.confirm;
+        return createStubConnectBridge({ channel: 'stable' });
+      },
+      confirm: async req => {
+        promptCalls.push({ featureId: req.featureId, featureVersion: req.featureVersion });
+        return true;
+      },
+      output: out.stream,
+      errorOutput: errOut.stream,
+      onServerStarted: async () => {
+        assert.ok(capturedConfirm);
+        await capturedConfirm!({
+          featureId: 'mcp_connect',
+          featureTitle: 'Connect MCP',
+          featureVersion: '1.0.0',
+          facts: [{ kind: 'connect_url', label: 'Endpoint', value: 'https://motion.open-design.ai/mcp' }],
+        });
+        await capturedConfirm!({
+          featureId: 'mcp_connect',
+          featureTitle: 'Connect MCP',
+          featureVersion: '2.0.0',
+          facts: [{ kind: 'connect_url', label: 'Endpoint', value: 'https://motion.open-design.ai/mcp' }],
+        });
+      },
+      waitForShutdown: async () => {},
+    });
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(promptCalls, [
+      { featureId: 'mcp_connect', featureVersion: '1.0.0' },
+      { featureId: 'mcp_connect', featureVersion: '2.0.0' },
+    ]);
+  });
 });

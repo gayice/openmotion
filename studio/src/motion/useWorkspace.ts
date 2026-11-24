@@ -222,7 +222,20 @@ export function useWorkspace(
         refreshCatalog(0);
       } else if (event === 'render-updated') refreshStatus(activeWorkspaceInterval);
     });
-    return () => { controller.abort(); unsubscribeSaves(); unsubscribeActivity(); };
+    const handleAccountChanged = () => {
+      setProjects([]);
+      setActiveProjectId(null);
+      setSessions([]);
+      refreshStatus(0);
+      refreshCatalog(0);
+    };
+    window.addEventListener('motion:account-changed', handleAccountChanged);
+    return () => {
+      controller.abort();
+      unsubscribeSaves();
+      unsubscribeActivity();
+      window.removeEventListener('motion:account-changed', handleAccountChanged);
+    };
   }, [projectId, sessionWithoutProject, updateCatalog, request, connectionCheck, navigate]);
 
   const transition = useCallback(async (path?: string, options?: { instruction?: string; mode?: string; templateId?: string; projectId?: string }, route: { session?: boolean; revealArtifact?: boolean; existing?: OpenTarget } = {}) => {

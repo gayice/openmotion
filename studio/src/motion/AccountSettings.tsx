@@ -11,7 +11,7 @@ import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { gatewayRequest, type CloudApiError } from './gatewayClient';
 import { notifyProvidersChanged } from './useProviderDirectory';
-import { clearPrivateSwrCache } from './swrCache';
+import { clearPrivateSwrCache, setPrivateSwrIdentity } from './swrCache';
 import { activeAccountOffer, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
 import {
@@ -194,13 +194,26 @@ export function useAccountSummary() {
     try {
       const raw = await gatewayRequest<CloudSummaryApiResponse>('account/summary' + (billing ? '?refresh=true' : ''));
       if (current === request.current) {
-        updateAccount(normalizeAccountSummary(raw));
+        const normalized = normalizeAccountSummary(raw);
+        const scopeChanged = setPrivateSwrIdentity(
+          normalized.state === 'signed-in'
+            ? {
+                userId: normalized.userId ?? normalized.user?.email ?? 'signed-in',
+                workspaceId: normalized.activeWorkspace?.id ?? 'default',
+              }
+            : null,
+        );
+        updateAccount(normalized);
+        if (scopeChanged) {
+          window.dispatchEvent(new Event('motion:account-changed'));
+        }
         setError(false);
       }
     } catch (err) {
       if (current !== request.current) return;
       const apiErr = err as CloudApiError;
       if (apiErr.status === 401) {
+        setPrivateSwrIdentity(null);
         updateAccount({ state: 'signed-out', consoleUrl: DEFAULT_CONSOLE_URL, authMode: 'oidc' });
         setError(false);
         return;
@@ -350,6 +363,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     setSwitchingWorkspaceId(workspaceId);
     try {
       await gatewayRequest('account/workspaces/switch', 'POST', { workspaceId });
+      clearPrivateSwrCache();
       await state.refresh(true);
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));

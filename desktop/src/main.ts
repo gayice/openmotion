@@ -1477,9 +1477,13 @@ async function loadStudioIntoMainWindow(targetPath?: string): Promise<void> {
   rendererReady = false;
   const baseTargetUrl = resolveStudioUrl();
   let targetUrl = baseTargetUrl;
-  if (targetPath && targetPath.startsWith('/')) {
+  if (targetPath && targetPath.startsWith('/') && !targetPath.startsWith('//') && !targetPath.includes('\\')) {
     try {
-      targetUrl = new URL(targetPath, baseTargetUrl).toString();
+      const expectedOrigin = new URL(baseTargetUrl).origin;
+      const resolved = new URL(targetPath, baseTargetUrl);
+      if (resolved.origin === expectedOrigin) {
+        targetUrl = resolved.toString();
+      }
     } catch {
       targetUrl = baseTargetUrl;
     }

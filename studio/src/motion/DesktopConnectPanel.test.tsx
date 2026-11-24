@@ -15,7 +15,7 @@ import {
   CONNECT_SCRIPT_TOKEN_HEADER,
 } from '../../../shared/connect-script-protocol';
 import { I18nProvider } from '../i18n/I18n';
-import { disconnectLocalConnectBridge } from '../utils/localConnectBridge';
+import { createLocalConnectBridge, disconnectLocalConnectBridge } from '../utils/localConnectBridge';
 import {
   DesktopConnectPanel,
   resolveAgentConnectionState,
@@ -763,5 +763,44 @@ describe('DesktopConnectPanel', () => {
       agentId: 'cursor',
       connectMode: 'config',
     });
+  });
+
+  it('keeps interactive helper invoke calls alive past the short probe timeout while timing out slow probes', async () => {
+    const delayedFetch: typeof fetch = async (_input, init) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          resolve(
+            new Response(JSON.stringify(hostOk({ exitCode: 0 })), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          );
+        }, 80);
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+
+    const bridge = createLocalConnectBridge({
+      port: 49123,
+      token: 'test-token',
+      timeoutMs: 30,
+      interactiveTimeoutMs: 400,
+      fetchImpl: delayedFetch,
+    });
+
+    const probeResult = await bridge.invoke(HOST_CAPABILITIES.ATOM_DETECT, 'detect', {});
+    expect(probeResult.ok).toBe(false);
+    if (!probeResult.ok) {
+      expect(probeResult.error.code).toBe('TIMEOUT');
+    }
+
+    const interactiveResult = await bridge.invoke(HOST_CAPABILITIES.ATOM_EXEC, 'run', {
+      featureId: 'mcp_connect',
+      templateId: 'codex.mcp.add_remote',
+    });
+    expect(interactiveResult.ok).toBe(true);
+    bridge.dispose();
   });
 });

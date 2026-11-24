@@ -68,9 +68,16 @@ export type DesktopHandoffProbeFetch = (
 export function sanitizeAuthReturnPath(rawPath: string | null | undefined): string | undefined {
   if (typeof rawPath !== 'string') return undefined;
   const trimmed = rawPath.trim();
-  if (!trimmed || /[\r\n\0]/.test(trimmed)) return undefined;
+  if (!trimmed || /[\r\n\0\\]/.test(trimmed)) return undefined;
   if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return undefined;
   if (trimmed === '/auth' || trimmed.startsWith('/auth/')) return undefined;
+  try {
+    const resolved = new URL(trimmed, 'https://studio.invalid');
+    if (resolved.origin !== 'https://studio.invalid') return undefined;
+    if (resolved.pathname === '/auth' || resolved.pathname.startsWith('/auth/')) return undefined;
+  } catch {
+    return undefined;
+  }
   return trimmed;
 }
 
@@ -183,7 +190,7 @@ type ActiveAttempt = {
   codeVerifier: string;
   expectedState: string;
   redirectUri: string;
-  server: Server;
+  server: Server | null;
   timeoutTimer: ReturnType<typeof setTimeout> | null;
   exchangeAbort: AbortController | null;
   consumed: boolean;
@@ -485,7 +492,10 @@ export class DesktopAuthHandoffManager {
       attempt.exchangeAbort.abort();
       attempt.exchangeAbort = null;
     }
-    closeServerPromptly(attempt.server);
+    if (attempt.server) {
+      closeServerPromptly(attempt.server);
+      attempt.server = null;
+    }
     if (this.activeAttempt === attempt) {
       this.activeAttempt = null;
     }
@@ -566,6 +576,7 @@ export class DesktopAuthHandoffManager {
     }
 
     const attemptId = this.nextAttemptId++;
+    const attemptOrigin = this.resolveCurrentStudioOrigin();
     const codeVerifier = generatePkceVerifier();
     const codeChallenge = derivePkceChallengeS256(codeVerifier);
     const state = generateHandoffState();
@@ -576,18 +587,75 @@ export class DesktopAuthHandoffManager {
       resolveCompletion = resolve;
     });
 
-    let attemptRef: ActiveAttempt | null = null;
+    // Reserve ownership synchronously before any await so overlapping startLogin()
+    // calls cleanly supersede earlier ones and cancelLogin() can abort a binding attempt.
+    const attempt: ActiveAttempt = {
+      id: attemptId,
+      startedAt,
+      studioOrigin: attemptOrigin,
+      codeVerifier,
+      expectedState: state,
+      redirectUri: '',
+      server: null,
+      timeoutTimer: null,
+      exchangeAbort: null,
+      consumed: false,
+      settled: false,
+      canceled: false,
+      resolveCompletion,
+    };
+    this.activeAttempt = attempt;
 
-    const { server, redirectUri } = await this.listenLoopback((req, res) => {
-      if (!attemptRef) {
-        res.writeHead(503, STATIC_HTML_HEADERS);
-        res.end(CALLBACK_ERROR_HTML);
-        return;
+    let server: Server;
+    let redirectUri: string;
+    try {
+      const bound = await this.listenLoopback((req, res) => {
+        if (attempt.canceled || attempt.settled || this.activeAttempt !== attempt) {
+          res.writeHead(409, STATIC_HTML_HEADERS);
+          res.end(CALLBACK_ERROR_HTML);
+          return;
+        }
+        this.handleLoopbackRequest(attempt, req, res);
+      });
+      server = bound.server;
+      redirectUri = bound.redirectUri;
+    } catch (error) {
+      if (this.activeAttempt === attempt) {
+        this.activeAttempt = null;
       }
-      this.handleLoopbackRequest(attemptRef, req, res);
-    });
+      if (!attempt.settled) {
+        this.settleAttempt(attempt, {
+          status: 'error',
+          startedAt,
+          completedAt: new Date().toISOString(),
+          errorCode: 'LOOPBACK_BIND_FAILED',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+      }
+      throw error;
+    }
 
-    const attemptOrigin = this.resolveCurrentStudioOrigin();
+    if (attempt.canceled || attempt.settled || this.activeAttempt !== attempt) {
+      closeServerPromptly(server);
+      const startUrl = this.buildStartUrl({
+        studioOrigin: attemptOrigin,
+        codeChallenge,
+        redirectUri,
+        state,
+        switchAccount: options?.switchAccount,
+      });
+      return {
+        startUrl,
+        redirectUri,
+        state,
+        codeChallenge,
+        completion,
+      };
+    }
+
+    attempt.server = server;
+    attempt.redirectUri = redirectUri;
+
     const startUrl = this.buildStartUrl({
       studioOrigin: attemptOrigin,
       codeChallenge,
@@ -596,27 +664,12 @@ export class DesktopAuthHandoffManager {
       switchAccount: options?.switchAccount,
     });
 
-    const attempt: ActiveAttempt = {
-      id: attemptId,
-      startedAt,
-      studioOrigin: attemptOrigin,
-      codeVerifier,
-      expectedState: state,
-      redirectUri,
-      server,
-      timeoutTimer: null,
-      exchangeAbort: null,
-      consumed: false,
-      settled: false,
-      canceled: false,
-      resolveCompletion,
-    };
-    attemptRef = attempt;
-    this.activeAttempt = attempt;
-
     attempt.timeoutTimer = setTimeout(() => {
-      if (attempt.settled || attempt.consumed) return;
-      closeServerPromptly(attempt.server);
+      if (attempt.settled || attempt.consumed || attempt.canceled || this.activeAttempt !== attempt) return;
+      if (attempt.server) {
+        closeServerPromptly(attempt.server);
+        attempt.server = null;
+      }
       this.settleAttempt(attempt, {
         status: 'error',
         startedAt: attempt.startedAt,
@@ -636,6 +689,16 @@ export class DesktopAuthHandoffManager {
     try {
       await this.openExternal(startUrl);
     } catch (error) {
+      if (attempt.canceled || attempt.settled || this.activeAttempt !== attempt) {
+        this.cleanupAttempt(attempt);
+        return {
+          startUrl,
+          redirectUri,
+          state,
+          codeChallenge,
+          completion,
+        };
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.cleanupAttempt(attempt);
       this.settleAttempt(attempt, {
@@ -693,7 +756,7 @@ export class DesktopAuthHandoffManager {
       return;
     }
 
-    if (attempt.consumed || attempt.settled || attempt.canceled) {
+    if (attempt.consumed || attempt.settled || attempt.canceled || this.activeAttempt !== attempt) {
       res.writeHead(409, STATIC_HTML_HEADERS);
       res.end(CALLBACK_ERROR_HTML);
       return;
@@ -704,7 +767,7 @@ export class DesktopAuthHandoffManager {
       attempt.consumed = true;
       res.writeHead(400, STATIC_HTML_HEADERS);
       res.end(CALLBACK_ERROR_HTML, () => {
-        closeServerAfterResponse(attempt.server);
+        if (attempt.server) closeServerAfterResponse(attempt.server);
       });
       this.settleAttempt(attempt, {
         status: 'error',
@@ -740,14 +803,14 @@ export class DesktopAuthHandoffManager {
 
     res.writeHead(200, STATIC_HTML_HEADERS);
     res.end(CALLBACK_SUCCESS_HTML, () => {
-      closeServerAfterResponse(attempt.server);
+      if (attempt.server) closeServerAfterResponse(attempt.server);
     });
 
     void this.performExchange(attempt, code);
   }
 
   private async performExchange(attempt: ActiveAttempt, code: string): Promise<void> {
-    if (attempt.settled || attempt.canceled) return;
+    if (attempt.settled || attempt.canceled || this.activeAttempt !== attempt) return;
 
     this.emitState({
       status: 'exchanging',

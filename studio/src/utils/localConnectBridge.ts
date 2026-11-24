@@ -29,12 +29,23 @@ import {
 } from '../../../shared/connect-script-protocol';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const DEFAULT_INTERACTIVE_INVOKE_TIMEOUT_MS = 180_000;
+
+function isInteractiveInvoke(capability: string, method: string): boolean {
+  if (capability === 'atom.exec') return true;
+  if (capability === 'atom.config' && (method === 'write' || method === 'restoreBackup')) return true;
+  if (capability === 'atom.installComponent' && (method === 'install' || method === 'uninstall')) return true;
+  if (capability === 'atom.credential' && method !== 'status') return true;
+  return false;
+}
 
 export type LocalConnectBridgeConfig = {
   port?: number;
   token: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** Extended timeout for interactive / approval-gated helper mutations (default 180s). */
+  interactiveTimeoutMs?: number;
 };
 
 export type LocalConnectBridgeHandle = UniversalHostBridge & {
@@ -178,6 +189,8 @@ export function createLocalConnectBridge(config: LocalConnectBridgeConfig): Loca
 
   const baseUrl = buildBaseUrl(port);
   const timeoutMs = config.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const interactiveTimeoutMs =
+    config.interactiveTimeoutMs ?? Math.max(timeoutMs, DEFAULT_INTERACTIVE_INVOKE_TIMEOUT_MS);
   const getFetch = (): typeof fetch => config.fetchImpl ?? globalThis.fetch;
 
   let disposed = false;
@@ -321,6 +334,10 @@ export function createLocalConnectBridge(config: LocalConnectBridgeConfig): Loca
         ? { capability, method, params }
         : { capability, method };
 
+      const effectiveTimeoutMs = isInteractiveInvoke(capability, method)
+        ? interactiveTimeoutMs
+        : timeoutMs;
+
       try {
         const response = await fetchWithTimeout(
           getFetch(),
@@ -333,7 +350,7 @@ export function createLocalConnectBridge(config: LocalConnectBridgeConfig): Loca
             }),
             body: JSON.stringify(body),
           },
-          timeoutMs,
+          effectiveTimeoutMs,
         );
 
         const payload = (await response.json().catch(() => null)) as unknown;

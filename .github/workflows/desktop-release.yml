@@ -58,7 +58,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: desktop-release-${{ github.event_name == 'push' && 'test-publish' || format('{0}-{1}', inputs.channel, inputs.publish) }}
+  group: desktop-release-${{ github.event_name == 'push' && 'test-publish' || format('{0}-{1}', inputs.channel, inputs.publish && 'publish' || 'dry-run') }}
   cancel-in-progress: false
 
 jobs:
@@ -643,6 +643,7 @@ jobs:
           CHANNEL: ${{ needs.prepare.outputs.channel }}
           EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
           INCLUDE_MAC_X64: ${{ needs.prepare.outputs.include_mac_x64 }}
+          INCLUDE_WIN_PORTABLE: ${{ needs.prepare.outputs.channel == 'stable' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           if [ -z "${RELEASE_BUCKET:-}" ] || [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
@@ -773,6 +774,7 @@ jobs:
           EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
           RELEASE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
           INCLUDE_MAC_X64: ${{ needs.prepare.outputs.include_mac_x64 }}
+          INCLUDE_WIN_PORTABLE: ${{ needs.prepare.outputs.channel == 'stable' && 'true' || 'false' }}
           RELEASE_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN || 'https://releases.open-design.ai' }}
           MIRROR_PUBLIC_ORIGIN: ${{ vars.MIRROR_PUBLIC_ORIGIN || 'https://mirror.inner.nexu.space' }}
           MIRROR_SOURCE_ID: ${{ vars.MIRROR_SOURCE_ID || 'od-next' }}

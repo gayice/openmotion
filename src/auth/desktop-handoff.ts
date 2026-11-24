@@ -17,6 +17,7 @@ import {
   parseCookies,
   resolveBrowserSession,
   serializeCookie,
+  verifyCsrfOrigin,
 } from './session.ts';
 import {
   assertSafeReturnTo,
@@ -108,9 +109,16 @@ class DesktopHandoffCodeStore {
 
       if (this.cache) {
         const key = this.cacheKey(codeHash);
-        const raw = await this.cache.get(key);
+        let raw: string | null;
+        if (typeof this.cache.getdel === 'function') {
+          raw = await this.cache.getdel(key);
+        } else {
+          raw = await this.cache.get(key);
+          if (raw) {
+            await this.cache.del(key);
+          }
+        }
         if (!raw) return null;
-        await this.cache.del(key);
         try {
           const parsed = JSON.parse(raw) as Partial<DesktopHandoffRecord>;
           if (
@@ -342,6 +350,21 @@ export function mountDesktopHandoffRoutes(
   app.post(DESKTOP_HANDOFF_EXCHANGE_PATH, async (c) => {
     c.header('Cache-Control', 'no-store');
     c.header('Pragma', 'no-cache');
+
+    // Reject cross-site browser requests (login CSRF / session fixation) while
+    // still permitting native Electron `session.fetch` calls that send no Origin
+    // or Sec-Fetch-Site header.
+    const originHeader = c.req.raw.headers.get('origin');
+    const secFetchSite = c.req.raw.headers.get('sec-fetch-site')?.trim().toLowerCase();
+    const hasCrossSiteSignal =
+      originHeader !== null ||
+      (secFetchSite !== undefined && secFetchSite !== '' && secFetchSite !== 'none');
+    if (hasCrossSiteSignal && !verifyCsrfOrigin(c.req.raw, deps.config.APP_PUBLIC_ORIGIN)) {
+      return c.json(
+        { code: 'CSRF_FORBIDDEN', error: 'Cross-site requests are not allowed on desktop handoff exchange' },
+        403,
+      );
+    }
 
     let rawJson: unknown;
     try {

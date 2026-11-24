@@ -977,7 +977,7 @@ export function DesktopConnectPanel({
                               size="sm"
                               loading={busy}
                               disabled={!canConnectMeta || actionsDisabledByVersion || (connectingAgent !== null && !busy)}
-                              onClick={() => void connectAgent(meta, 'abort')}
+                              onClick={() => void connectAgent(meta, meta.id === 'claude' ? 'replace' : 'abort')}
                             >
                               {t('Re-apply config')}
                             </Button>
@@ -990,7 +990,7 @@ export function DesktopConnectPanel({
                             size="sm"
                             loading={busy}
                             disabled={!canConnectMeta || actionsDisabledByVersion || (connectingAgent !== null && !busy)}
-                            onClick={() => void connectAgent(meta, 'abort')}
+                            onClick={() => void connectAgent(meta, meta.id === 'claude' ? 'replace' : 'abort')}
                           >
                             {t('Re-apply config')}
                           </Button>

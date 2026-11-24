@@ -772,7 +772,16 @@ test('notify-feishu-release builds signed Card 2.0 payload, respects includeMacX
   assert.match(fullText, /OpenDesign-0\.2\.2-test\.2-mac-arm64\.dmg/);
   assert.match(fullText, /OpenDesign-0\.2\.2-test\.2-mac-x64\.dmg/);
   assert.match(fullText, /OpenDesign-Setup-0\.2\.2-test\.2-win-x64\.exe/);
-  assert.match(fullText, /OpenDesign-Portable-0\.2\.2-test\.2-win-x64\.exe/);
+  assert.equal(fullText.includes('OpenDesign-Portable-0.2.2-test.2-win-x64.exe'), false);
+
+  // Stable builds include the Windows portable button by default.
+  const stableCardText = JSON.stringify(
+    buildDesktopReleaseCardPayload({
+      channel: 'stable',
+      version: '0.2.2',
+    }).card,
+  );
+  assert.match(stableCardText, /OpenDesign-Portable-0\.2\.2-win-x64\.exe/);
   assert.match(fullText, /内网极速下载（Mirror）/);
   assert.match(
     fullText,
@@ -1021,7 +1030,7 @@ test('notify-feishu-release groups a structured changelog and links the previous
   assert.match(cardText, /OpenDesign-0\.2\.2-test\.7-mac-arm64\.dmg/);
   assert.match(cardText, /OpenDesign-0\.2\.2-test\.7-mac-x64\.dmg/);
   assert.match(cardText, /OpenDesign-Setup-0\.2\.2-test\.7-win-x64\.exe/);
-  assert.match(cardText, /OpenDesign-Portable-0\.2\.2-test\.7-win-x64\.exe/);
+  assert.equal(cardText.includes('OpenDesign-Portable-0.2.2-test.7-win-x64.exe'), false);
   assert.match(cardText, /内网极速下载（Mirror）/);
   assert.match(
     cardText,

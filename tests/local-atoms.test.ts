@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, it } from 'node:test';
@@ -10,7 +10,7 @@ import {
   type HostConfirmationRequest,
 } from '../shared/desktop-contract.ts';
 import { MURMUR_COMPONENT_ID } from '../shared/engine-command-contract.ts';
-import type { SignedConfigPayload } from '../shared/signed-config.ts';
+import { validateSignedConfigPayloadBounds, type SignedConfigPayload } from '../shared/signed-config.ts';
 import {
   ComponentInstallRegistry,
   createConfigAtom,
@@ -26,6 +26,8 @@ import {
   defaultCodeSignatureVerifier,
   evaluateWindowsAuthenticodeResult,
   parseMacOsCodesignTeamId,
+  resolveWindowsCmdShimInvocation,
+  upsertTomlMcpEntry,
   type CommandRunnerInput,
 } from '../packages/local-atoms/index.ts';
 
@@ -1388,5 +1390,240 @@ describe('Windows Authenticode code signature verification', () => {
     );
     assert.equal(unconfigured.ok, false);
     if (!unconfigured.ok) assert.match(unconfigured.reason, /thumbprint is not configured/i);
+  });
+});
+
+describe('Security & robustness regressions (PR #1001 review)', () => {
+  it('preserves 0600 file permissions when rewriting and restoring agent config files', async () => {
+    const homeDir = makeTempDir('om-perm-home-');
+    const dataDir = makeTempDir('om-perm-data-');
+    const claudePath = path.join(homeDir, '.claude.json');
+    writeFileSync(claudePath, JSON.stringify({ secretToken: 'keep-private', mcpServers: {} }, null, 2), {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    chmodSync(claudePath, 0o600);
+
+    const signedConfig: SignedConfigPayload = {
+      configRules: {
+        claude_mcp: {
+          ruleId: 'claude_mcp',
+          agentId: 'claude',
+          displayName: 'Claude Code',
+          fileFormat: 'json',
+          homeRelativePath: '.claude.json',
+          fieldType: 'remote_mcp_entry',
+          sectionPath: 'mcpServers',
+        },
+      },
+      features: {
+        mcp_connect: {
+          featureId: 'mcp_connect',
+          version: '1.0.0',
+          title: 'Connect MCP',
+          summary: 'Write MCP config',
+          configRuleIds: ['claude_mcp'],
+        },
+      },
+    };
+
+    const configAtom = createConfigAtom({
+      homeDir,
+      dataDir,
+      channel: 'stable',
+      getSignedConfig: () => signedConfig,
+      confirmationGate: createFeatureConfirmationGate({ dataDir, confirmCallback: async () => true }),
+      mutationQueue: createSerialMutationQueue(),
+    });
+
+    const written = await configAtom.write({
+      featureId: 'mcp_connect',
+      ruleId: 'claude_mcp',
+      fieldType: 'remote_mcp_entry',
+      value: { serverName: 'openmotion', url: 'https://motion.open-design.ai/mcp' },
+    });
+    assert.equal(written.ok, true);
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(claudePath).mode & 0o777, 0o600);
+    }
+    if (written.ok && written.data.backupPath) {
+      const restored = await configAtom.restoreBackup({
+        featureId: 'mcp_connect',
+        backupPath: written.data.backupPath,
+      });
+      assert.equal(restored.ok, true);
+      if (process.platform !== 'win32') {
+        assert.equal(statSync(claudePath).mode & 0o777, 0o600);
+      }
+    }
+  });
+
+  it('removes complete multiline TOML args arrays when replacing legacy stdio entries', () => {
+    const legacyToml = [
+      '[mcp_servers.openmotion]',
+      'command = "node"',
+      'args = [',
+      '  "server.js",',
+      '  "--stdio"',
+      ']',
+      'startup_timeout_sec = 30',
+      '',
+      '[mcp_servers.other]',
+      'url = "https://other.open-design.ai/mcp"',
+      '',
+    ].join('\n');
+
+    const replaced = upsertTomlMcpEntry(
+      legacyToml,
+      'mcp_servers',
+      { serverName: 'openmotion', url: 'https://motion.open-design.ai/mcp' },
+      'replace',
+    );
+    assert.equal(replaced.ok, true);
+    if (replaced.ok) {
+      assert.equal(replaced.content.includes('server.js'), false);
+      assert.equal(replaced.content.includes('--stdio'), false);
+      assert.equal(replaced.content.includes(']'), true); // section header brackets still present
+      assert.match(replaced.content, /url = "https:\/\/motion\.open-design\.ai\/mcp"/);
+      assert.match(replaced.content, /startup_timeout_sec = 30/);
+      assert.match(replaced.content, /\[mcp_servers\.other\]/);
+    }
+  });
+
+  it('rejects traversal or mismatched manifest.componentId in both bounds validation and installComponent', async () => {
+    const badConfig: SignedConfigPayload = {
+      components: {
+        murmur: {
+          componentId: '../escape',
+          displayName: 'Bad',
+          minVersion: '1.0.0',
+          platforms: {
+            'darwin-arm64': {
+              url: 'https://releases.open-design.ai/murmur.tar.gz',
+              sha256: 'a'.repeat(64),
+              publisherId: BUILTIN_PUBLISHERS[0]!.id,
+            },
+          },
+        },
+      },
+      features: {
+        install_murmur: {
+          featureId: 'install_murmur',
+          version: '1.0.0',
+          title: 'Install',
+          summary: 'Install',
+          componentIds: ['murmur'],
+        },
+      },
+    };
+
+    const issues = validateSignedConfigPayloadBounds(badConfig);
+    assert.ok(issues.some(i => i.path === 'components.murmur.componentId'));
+
+    const dataDir = makeTempDir('om-comp-data-');
+    const registry = new ComponentInstallRegistry(dataDir);
+    const installer = createInstallComponentAtom({
+      registry,
+      platform: 'darwin',
+      arch: 'arm64',
+      channel: 'stable',
+      getSignedConfig: () => badConfig,
+      confirmationGate: createFeatureConfirmationGate({ dataDir, confirmCallback: async () => true }),
+      mutationQueue: createSerialMutationQueue(),
+    });
+    const res = await installer.install({ featureId: 'install_murmur', componentId: 'murmur' });
+    assert.equal(res.ok, false);
+    if (!res.ok) assert.equal(res.error.code, 'POLICY_DENIED');
+  });
+
+  it('resolves Windows .cmd npm shims to direct shell-free node invocations and ignores extensionless shims on win32', async () => {
+    const shimDir = makeTempDir('om-win-shim-');
+    const scriptDir = path.join(shimDir, 'node_modules', '@openai', 'codex', 'bin');
+    mkdirSync(scriptDir, { recursive: true });
+    const scriptPath = path.join(scriptDir, 'codex.js');
+    writeFileSync(scriptPath, 'console.log("ok");\n', 'utf8');
+    const shimPath = path.join(shimDir, 'codex.cmd');
+    writeFileSync(
+      shimPath,
+      '@ECHO off\r\n"%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n',
+      'utf8',
+    );
+    const fakeNode = path.join(shimDir, 'node.exe');
+    writeFileSync(fakeNode, '', 'utf8');
+
+    const resolved = await resolveWindowsCmdShimInvocation(shimPath, ['--version'], {
+      pathOps: path.posix,
+    });
+    assert.equal(resolved.ok, true);
+    if (resolved.ok) {
+      assert.equal(resolved.binaryPath, fakeNode);
+      assert.deepEqual(resolved.argv, [scriptPath, '--version']);
+    }
+
+    // PathResolver on win32 skips bare POSIX shims in favor of .cmd / .exe.
+    const winResolver = createPathResolver({
+      platform: 'win32',
+      env: { PATH: 'C:\\npm', PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+      fs: {
+        existsSync: p => p === 'C:\\npm',
+        readdirSync: () => [],
+        isExecutableFile: p => p === 'C:\\npm\\codex' || p === 'C:\\npm\\codex.cmd',
+      },
+    });
+    assert.equal(await winResolver.resolveBinary('codex'), 'C:\\npm\\codex.cmd');
+  });
+
+  it('treats Claude MCP reapplication with an identical URL as idempotent success', async () => {
+    const homeDir = makeTempDir('om-claude-home-');
+    const dataDir = makeTempDir('om-claude-data-');
+    writeFileSync(
+      path.join(homeDir, '.claude.json'),
+      JSON.stringify({
+        mcpServers: {
+          openmotion: { type: 'http', url: 'https://motion.open-design.ai/mcp' },
+        },
+      }),
+      'utf8',
+    );
+
+    const signedConfig: SignedConfigPayload = {
+      features: {
+        mcp_connect: {
+          featureId: 'mcp_connect',
+          version: '1.0.0',
+          title: 'Connect',
+          summary: 'Connect',
+          commandTemplateIds: ['claude.mcp.add_remote'],
+        },
+      },
+    };
+
+    let runnerCalls = 0;
+    const execAtom = createExecAtom({
+      homeDir,
+      channel: 'stable',
+      getExpectedMcpUrl: () => 'https://motion.open-design.ai/mcp',
+      getSignedConfig: () => signedConfig,
+      pathResolver: createPathResolver({
+        platform: 'darwin',
+        fs: { existsSync: () => false, readdirSync: () => [], isExecutableFile: p => p.endsWith('/claude') },
+      }),
+      componentRegistry: new ComponentInstallRegistry(dataDir),
+      confirmationGate: createFeatureConfirmationGate({ dataDir, confirmCallback: async () => true }),
+      mutationQueue: createSerialMutationQueue(),
+      commandRunner: async (_input: CommandRunnerInput) => {
+        runnerCalls += 1;
+        return { exitCode: 1, stdout: '', stderr: 'already exists', timedOut: false };
+      },
+    });
+
+    const result = await execAtom.run({
+      featureId: 'mcp_connect',
+      templateId: 'claude.mcp.add_remote',
+      args: { serverName: 'openmotion', mcpUrl: 'https://motion.open-design.ai/mcp' },
+      conflictPolicy: 'abort',
+    });
+    assert.equal(result.ok, true);
+    assert.equal(runnerCalls, 0);
   });
 });

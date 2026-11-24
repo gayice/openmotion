@@ -248,6 +248,7 @@ export function buildDesktopReleaseCardPayload({
   actor = '',
   runUrl = '',
   includeMacX64 = true,
+  includeWinPortable = channel === 'stable',
   secret = '',
   timestampSeconds = Math.floor(Date.now() / 1000),
 }) {
@@ -442,30 +443,44 @@ export function buildDesktopReleaseCardPayload({
       flex_mode: 'none',
       horizontal_spacing: '8px',
       margin: '0px 0px 12px 0px',
-      columns: [
-        {
-          tag: 'column',
-          width: 'weighted',
-          weight: 1,
-          elements: [
-            makeDownloadButton({
-              label: 'Windows · 安装版',
-              url: winSetup,
-            }),
+      columns: includeWinPortable
+        ? [
+            {
+              tag: 'column',
+              width: 'weighted',
+              weight: 1,
+              elements: [
+                makeDownloadButton({
+                  label: 'Windows · 安装版',
+                  url: winSetup,
+                }),
+              ],
+            },
+            {
+              tag: 'column',
+              width: 'weighted',
+              weight: 1,
+              elements: [
+                makeDownloadButton({
+                  label: 'Windows · 便携版',
+                  url: winPortable,
+                }),
+              ],
+            },
+          ]
+        : [
+            {
+              tag: 'column',
+              width: 'weighted',
+              weight: 1,
+              elements: [
+                makeDownloadButton({
+                  label: '下载 Windows (x64 安装版)',
+                  url: winSetup,
+                }),
+              ],
+            },
           ],
-        },
-        {
-          tag: 'column',
-          width: 'weighted',
-          weight: 1,
-          elements: [
-            makeDownloadButton({
-              label: 'Windows · 便携版',
-              url: winPortable,
-            }),
-          ],
-        },
-      ],
     },
     ...(mirrorLinks.length > 0
       ? [
@@ -638,6 +653,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename
     manualNotes,
     compareUrl,
     actor: process.env.GITHUB_ACTOR || '',
+    includeWinPortable:
+      process.env.INCLUDE_WIN_PORTABLE !== undefined
+        ? process.env.INCLUDE_WIN_PORTABLE === 'true'
+        : channel === 'stable',
     runUrl,
     includeMacX64: process.env.INCLUDE_MAC_X64 !== 'false',
   });

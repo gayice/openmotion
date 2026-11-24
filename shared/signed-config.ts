@@ -313,7 +313,24 @@ export function validateSignedConfigPayloadBounds(
     }
   }
 
+  const SAFE_COMPONENT_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
   for (const [key, component] of Object.entries(payload.components ?? {})) {
+    if (!SAFE_COMPONENT_ID_RE.test(key)) {
+      issues.push({
+        path: `components.${key}`,
+        message: `Component key must be a safe identifier: ${key}`,
+      });
+    }
+    if (
+      typeof component.componentId !== 'string' ||
+      !SAFE_COMPONENT_ID_RE.test(component.componentId) ||
+      component.componentId !== key
+    ) {
+      issues.push({
+        path: `components.${key}.componentId`,
+        message: `Component manifest componentId must be a safe identifier matching key "${key}": ${String(component.componentId)}`,
+      });
+    }
     for (const [platformKey, artifact] of Object.entries(component.platforms ?? {})) {
       if (!artifact) continue;
       if (!isUrlInAllowedDomainScope(artifact.url, urlOpts)) {

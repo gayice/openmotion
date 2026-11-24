@@ -17,8 +17,9 @@
  */
 
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import {
   BUILTIN_PUBLISHERS,
   BUILTIN_TEMPLATE_MAP,
@@ -120,6 +121,87 @@ type ResolvedTemplate = {
 function truncateOutput(text: string): string {
   if (text.length <= MAX_CAPTURE_CHARS) return text;
   return `${text.slice(0, MAX_CAPTURE_CHARS)}\n…[truncated]`;
+}
+
+const MAX_WINDOWS_SHIM_BYTES = 32 * 1024;
+
+/**
+ * Resolves a Windows `.cmd` / `.bat` npm/pnpm/yarn CLI shim into a direct,
+ * shell-free `[nodeExe, scriptEntrypoint, ...argv]` invocation so `execFile`
+ * with `shell: false` can safely run npm-installed CLIs (e.g. `codex.cmd`,
+ * `claude.cmd`) without ever spawning `cmd.exe`.
+ */
+export async function resolveWindowsCmdShimInvocation(
+  shimPath: string,
+  argv: readonly string[],
+  options?: {
+    resolveNode?: () => Promise<string | null>;
+    readFile?: (filePath: string) => string;
+    exists?: (filePath: string) => boolean;
+    pathOps?: typeof path.win32 | typeof path.posix;
+  },
+): Promise<{ ok: true; binaryPath: string; argv: string[] } | { ok: false; reason: string }> {
+  if (!/\.(?:cmd|bat)$/i.test(shimPath)) {
+    return { ok: true, binaryPath: shimPath, argv: [...argv] };
+  }
+
+  const read = options?.readFile ?? ((p: string) => readFileSync(p, 'utf8'));
+  const exists = options?.exists ?? existsSync;
+  const pathOps = options?.pathOps ?? (shimPath.includes('\\') || /^[a-zA-Z]:/.test(shimPath) ? path.win32 : path.posix);
+
+  let shimSource: string;
+  try {
+    shimSource = read(shimPath);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `Unable to read Windows CLI shim "${shimPath}": ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  if (shimSource.length > MAX_WINDOWS_SHIM_BYTES) {
+    return { ok: false, reason: `Windows CLI shim "${shimPath}" exceeds size limit` };
+  }
+
+  const quotedMatch = /"%(?:~)?dp0%[\\/]*([^"\r\n]+?\.(?:c|m)?js)"/i.exec(shimSource);
+  const bareMatch = !quotedMatch ? /%(?:~)?dp0%[\\/]*([^\s"'\r\n]+?\.(?:c|m)?js)/i.exec(shimSource) : null;
+  const rawRelScript = (quotedMatch?.[1] ?? bareMatch?.[1] ?? '').trim();
+  if (!rawRelScript || /[\x00-\x1f\x7f%]/.test(rawRelScript)) {
+    return {
+      ok: false,
+      reason: `Unsupported Windows CLI shim format (no Node.js script entrypoint found): ${shimPath}`,
+    };
+  }
+
+  const shimDir = pathOps.dirname(shimPath);
+  const normalizedRelScript = pathOps === path.posix ? rawRelScript.replace(/\\/g, '/') : rawRelScript;
+  const scriptPath = pathOps.resolve(shimDir, normalizedRelScript);
+  if (!exists(scriptPath)) {
+    return {
+      ok: false,
+      reason: `Windows CLI shim entrypoint does not exist: ${scriptPath}`,
+    };
+  }
+
+  const siblingNode = pathOps.join(shimDir, 'node.exe');
+  let nodeExe: string | null = exists(siblingNode) ? siblingNode : null;
+  if (!nodeExe && options?.resolveNode) {
+    nodeExe = await options.resolveNode();
+  }
+  if (!nodeExe && /^node(?:\.exe)?$/i.test(path.basename(process.execPath))) {
+    nodeExe = process.execPath;
+  }
+  if (!nodeExe) {
+    return {
+      ok: false,
+      reason: `Could not locate a Node.js runtime to execute Windows CLI shim "${shimPath}"`,
+    };
+  }
+
+  return {
+    ok: true,
+    binaryPath: nodeExe,
+    argv: [scriptPath, ...argv],
+  };
 }
 
 export const defaultCommandRunner: CommandRunner = input => {
@@ -353,6 +435,23 @@ export class ExecAtom {
       if (!queueConflict.ok) return queueConflict;
 
       // Claude Code >= 2.1.330 rejects `claude mcp add` when the server name already exists.
+      // When conflictPolicy === 'abort' and the entry already matches the requested URL,
+      // treat the reapplication as idempotent success instead of failing on duplicate name.
+      if (
+        template.templateId === 'claude.mcp.add_remote' &&
+        conflictPolicy === 'abort' &&
+        this.hasMatchingMcpEntry(template.templateId, validatedArgs, signedConfig)
+      ) {
+        return hostOk({
+          templateId: template.templateId,
+          program: template.program,
+          exitCode: 0,
+          stdout: 'MCP server is already configured with the requested URL.',
+          stderr: '',
+          durationMs: 0,
+        });
+      }
+
       // When conflictPolicy === 'replace' and an existing entry is present, remove it first.
       if (
         template.templateId === 'claude.mcp.add_remote' &&
@@ -715,6 +814,29 @@ export class ExecAtom {
     return Boolean(readResult.ok && readResult.exists && readResult.entry);
   }
 
+  private hasMatchingMcpEntry(
+    templateId: string,
+    validatedArgs: Record<string, string>,
+    signedConfig: SignedConfigPayload,
+  ): boolean {
+    const requestedUrl = validatedArgs.mcpUrl;
+    if (!requestedUrl) return false;
+    const target = resolveBuiltinMcpConfigTarget(templateId, signedConfig, this.homeDir);
+    if (!target) return false;
+    const serverName = validatedArgs.serverName ?? DEFAULT_MCP_SERVER_NAME;
+    const readResult = readMcpEntryFromFile({
+      filePath: target.filePath,
+      fileFormat: target.fileFormat,
+      sectionPath: target.sectionPath,
+      serverName,
+    });
+    const existingUrl = readResult.ok && readResult.exists ? readResult.entry?.url : undefined;
+    return Boolean(
+      existingUrl &&
+      normalizeUrlForComparison(existingUrl) === normalizeUrlForComparison(requestedUrl),
+    );
+  }
+
   private checkMcpConflict(
     templateId: string,
     validatedArgs: Record<string, string>,
@@ -883,10 +1005,27 @@ export class ExecAtom {
         : {}),
     };
 
+    let execBinaryPath = binaryPath;
+    let execArgv: readonly string[] = argv;
+    if (this.platform === 'win32' && /\.(?:cmd|bat)$/i.test(binaryPath)) {
+      const resolvedShim = await resolveWindowsCmdShimInvocation(binaryPath, argv, {
+        resolveNode: () => this.pathResolver.resolveBinary('node'),
+      });
+      if (!resolvedShim.ok) {
+        return hostErr('EXEC_FAILED', resolvedShim.reason, {
+          templateId: template.templateId,
+          program: template.program,
+          binaryPath,
+        });
+      }
+      execBinaryPath = resolvedShim.binaryPath;
+      execArgv = resolvedShim.argv;
+    }
+
     const startTime = Date.now();
     const output = await this.commandRunner({
-      binaryPath,
-      argv,
+      binaryPath: execBinaryPath,
+      argv: execArgv,
       timeoutMs: this.timeoutMs,
       env,
       stdin: stdinSecret,
