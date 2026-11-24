@@ -2433,9 +2433,8 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     const enabled = cloudTracking.isEnabled();
     return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud' });
   });
-  let cloudTrackingOptIn = true;
   app.post('/motion-api/tracking', async (c) => {
-    if (!cloudTracking.isEnabled() || !cloudTrackingOptIn) {
+    if (!cloudTracking.isEnabled()) {
       return c.json({ ok: true, accepted: false }, 202);
     }
     const body = await c.req.json().catch(() => null);
@@ -2443,35 +2442,23 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     return c.json({ ok: true, accepted: acceptedCount > 0, acceptedCount }, 202);
   });
   const trackingPreferencesPayload = () => {
-    if (!cloudTracking.isEnabled()) {
-      return {
-        enabled: false,
-        preference: false,
-        locked: true,
-        reason: 'environment' as const,
-      };
-    }
+    const enabled = cloudTracking.isEnabled();
     return {
-      enabled: cloudTrackingOptIn,
-      preference: cloudTrackingOptIn,
-      locked: false,
-      reason: 'preference' as const,
+      enabled,
+      preference: enabled,
+      locked: true,
+      reason: enabled ? ('deployment' as const) : ('environment' as const),
     };
   };
   app.get('/motion-api/tracking/preferences', authMiddleware, (c) => {
     return c.json(trackingPreferencesPayload());
   });
-  const updateTrackingPreferences = async (c: { req: { json: () => Promise<unknown> }; json: (body: unknown) => Response }) => {
-    if (cloudTracking.isEnabled()) {
-      const body = await c.req.json().catch(() => null) as { enabled?: unknown } | null;
-      if (typeof body?.enabled === 'boolean') {
-        cloudTrackingOptIn = body.enabled;
-      }
-    }
+  app.put('/motion-api/tracking/preferences', authMiddleware, (c) => {
     return c.json(trackingPreferencesPayload());
-  };
-  app.put('/motion-api/tracking/preferences', authMiddleware, updateTrackingPreferences);
-  app.post('/motion-api/tracking/preferences', authMiddleware, updateTrackingPreferences);
+  });
+  app.post('/motion-api/tracking/preferences', authMiddleware, (c) => {
+    return c.json(trackingPreferencesPayload());
+  });
   app.post('/motion-api/diagnostics', authMiddleware, (c) => {
     return c.json({ ok: true, mode: 'cloud-container', version: VERSION });
   });

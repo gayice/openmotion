@@ -51,6 +51,12 @@ it('shows an environment lock and never offers to override it', async () => {
   expect(document.body.textContent).toContain('Disabled by your environment settings.');
 });
 
+it('shows a deployment lock message when cloud tracking is enabled and managed by deployment', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ enabled: true, preference: true, locked: true, reason: 'deployment' })));
+  const toggle = await open(); expect((toggle.getAttribute('aria-checked') === 'true')).toBe(true); expect(toggle.disabled).toBe(true);
+  expect(document.body.textContent).toContain('Managed by your deployment settings.');
+});
+
 it('reports save failure without falsely claiming the installation has opted out', async () => {
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => init?.method === 'PUT'
     ? Response.json({ error: 'failed' }, { status: 500 }) : Response.json({ enabled: true, preference: true, locked: false })));

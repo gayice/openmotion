@@ -49,7 +49,8 @@
     "Upgrade plan": "升级套餐",
     "Not enough credits to generate": "可用额度不足",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "提示词与参考图已保留且未产生扣费。请补充额度或调低规格后重试。",
-    "Add credits": "补充额度"
+    "Add credits": "补充额度",
+    "Managed by your deployment settings.": "由当前部署配置统一管理。"
   },
   "ja": {
     "Data motion": "データモーション",
@@ -101,7 +102,8 @@
     "Upgrade plan": "プランをアップグレード",
     "Not enough credits to generate": "生成に必要なクレジットが不足しています",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "プロンプトと参照素材は課金なしで保持されています。クレジットを追加するか設定を下げて再試行してください。",
-    "Add credits": "クレジットを追加"
+    "Add credits": "クレジットを追加",
+    "Managed by your deployment settings.": "現在のデプロイ設定で管理されています。"
   },
   "ko": {
     "Data motion": "데이터 모션",
@@ -153,7 +155,8 @@
     "Upgrade plan": "플랜 업그레이드",
     "Not enough credits to generate": "생성할 크레딧이 부족합니다",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "프롬프트와 참조 자료는 과금 없이 보존되었습니다. 크레딧을 충전하거나 설정을 낮춰 다시 시도하세요.",
-    "Add credits": "크레딧 충전"
+    "Add credits": "크레딧 충전",
+    "Managed by your deployment settings.": "현재 배포 설정으로 관리됩니다."
   },
   "de": {
     "Data motion": "Daten-Motion",
@@ -205,7 +208,8 @@
     "Upgrade plan": "Tarif upgraden",
     "Not enough credits to generate": "Nicht genug Guthaben zum Generieren",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "Dein Prompt und deine Referenzen bleiben ohne Berechnung erhalten. Lade Guthaben auf oder reduziere die Einstellungen.",
-    "Add credits": "Guthaben aufladen"
+    "Add credits": "Guthaben aufladen",
+    "Managed by your deployment settings.": "Wird durch Ihre Bereitstellungseinstellungen verwaltet."
   },
   "fr": {
     "Data motion": "Data motion",
@@ -257,7 +261,8 @@
     "Upgrade plan": "Mettre à niveau",
     "Not enough credits to generate": "Crédits insuffisants pour générer",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "Votre prompt et vos références sont conservés sans facturation. Ajoutez des crédits ou réduisez les paramètres pour réessayer.",
-    "Add credits": "Ajouter des crédits"
+    "Add credits": "Ajouter des crédits",
+    "Managed by your deployment settings.": "Géré par les paramètres de votre déploiement."
   },
   "ru": {
     "Data motion": "Дата-моушн",
@@ -309,7 +314,8 @@
     "Upgrade plan": "Обновить тариф",
     "Not enough credits to generate": "Недостаточно кредитов для генерации",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "Промпт и референсы сохранены без списания. Пополните баланс или уменьшите параметры и повторите попытку.",
-    "Add credits": "Пополнить баланс"
+    "Add credits": "Пополнить баланс",
+    "Managed by your deployment settings.": "Управляется настройками развёртывания."
   },
   "es": {
     "Data motion": "Motion de datos",
@@ -361,7 +367,8 @@
     "Upgrade plan": "Mejorar plan",
     "Not enough credits to generate": "No hay créditos suficientes para generar",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "Tu prompt y referencias se conservan sin cobro. Añade créditos o reduce la configuración para reintentar.",
-    "Add credits": "Añadir créditos"
+    "Add credits": "Añadir créditos",
+    "Managed by your deployment settings.": "Gestionado por la configuración de despliegue."
   },
   "pt-BR": {
     "Data motion": "Motion de dados",
@@ -413,7 +420,8 @@
     "Upgrade plan": "Fazer upgrade",
     "Not enough credits to generate": "Créditos insuficientes para gerar",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "Seu prompt e referências foram preservados sem cobrança. Adicione créditos ou reduza as configurações para tentar novamente.",
-    "Add credits": "Adicionar créditos"
+    "Add credits": "Adicionar créditos",
+    "Managed by your deployment settings.": "Gerenciado pelas configurações de implantação."
   },
   "it": {
     "Data motion": "Data motion",
@@ -465,7 +473,8 @@
     "Upgrade plan": "Aggiorna piano",
     "Not enough credits to generate": "Crediti insufficienti per generare",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "Prompt e riferimenti sono conservati senza addebiti. Aggiungi crediti o riduci le impostazioni per riprovare.",
-    "Add credits": "Aggiungi crediti"
+    "Add credits": "Aggiungi crediti",
+    "Managed by your deployment settings.": "Gestito dalle impostazioni di distribuzione."
   },
   "tr": {
     "Data motion": "Veri animasyonu",
@@ -517,6 +526,7 @@
     "Upgrade plan": "Planı yükselt",
     "Not enough credits to generate": "Oluşturmak için yeterli kredi yok",
     "Your prompt and references are preserved with no charge. Add credits or lower settings to retry.": "İsteminiz ve referanslarınız ücret alınmadan korundu. Yeniden denemek için kredi ekleyin veya ayarları düşürün.",
-    "Add credits": "Kredi ekle"
+    "Add credits": "Kredi ekle",
+    "Managed by your deployment settings.": "Dağıtım ayarlarınız tarafından yönetiliyor."
   }
 }
