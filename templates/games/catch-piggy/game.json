@@ -1,0 +1,30 @@
+{
+  "id": "catch-piggy",
+  "title": "Catch Piggy",
+  "description": "Pick three matching cartoon piggies and toys from a physics pile into your tray to clear the whole board before the timer runs out.",
+  "genre": "casual",
+  "style": "anime",
+  "setting": "fantasy",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap toys and piggies to move them into the 7-slot tray; match three identical items to clear them.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "orientation": "portrait",
+  "tags": [
+    "top赚钱"
+  ],
+  "i18n": {
+    "zh-CN": {
+      "title": "抓小猪",
+      "description": "在物理堆叠的萌趣玩具与小猪堆里挑出三个相同物品凑对消除，活用冰冻与磁铁道具通关。",
+      "controls": "点击画面中的小猪或玩具放入底部 7 格托盘，集齐 3 个相同物品自动消除。"
+    }
+  }
+}

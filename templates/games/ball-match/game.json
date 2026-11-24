@@ -1,0 +1,30 @@
+{
+  "id": "ball-match",
+  "title": "Ball Match",
+  "description": "Connect chains of matching colorful spheres to pop clusters, trigger bombs, and hit each stage target within limited moves.",
+  "genre": "casual",
+  "style": "3d",
+  "setting": "modern",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Drag across adjacent balls of the same color to link and pop them before moves run out.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "orientation": "portrait",
+  "tags": [
+    "top赚钱"
+  ],
+  "i18n": {
+    "zh-CN": {
+      "title": "球球消消乐",
+      "description": "连线消除同色立体彩球，触发炸弹与连击特效，在限定步数内完成每关收集目标。",
+      "controls": "按住并滑动连接相邻同色彩球，松手即可连线消除，善用炸弹道具过关。"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "screw-puzzle",
+  "title": "Screw Puzzle",
+  "description": "Unscrew colored bolts from overlapping acrylic boards into matching boxes while keeping the buffer holes from overflowing.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": "modern",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap exposed screws to remove them into matching colored boxes. Clear every board to advance.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "orientation": "portrait",
+  "tags": [
+    "top赚钱"
+  ],
+  "i18n": {
+    "zh-CN": {
+      "title": "打螺丝",
+      "description": "拧下叠层亚克力板上的彩色螺丝装入同色盒子，善用空槽与道具拆光全部木板通关。",
+      "controls": "点击未被遮挡的螺丝将其拧下，凑齐同色三颗装满盒子；注意别让备用孔位塞满。"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "block-blast",
+  "title": "Block Blast Master",
+  "description": "Drag colorful block shapes onto an 8x8 board, clear full rows and columns, and chain combo clears for high scores.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": "modern",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Drag pieces from the bottom tray onto the 8x8 grid. Complete full rows or columns to blast them clear.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "orientation": "portrait",
+  "tags": [
+    "top赚钱"
+  ],
+  "i18n": {
+    "zh-CN": {
+      "title": "方块爆破大师",
+      "description": "把底部多彩方块拖进 8×8 棋盘，凑齐整行或整列即可爆破得分，连消冲刺高分。",
+      "controls": "按住底部方块拖到棋盘空位，排满一整行或一整列即可消除。"
+    }
+  }
+}

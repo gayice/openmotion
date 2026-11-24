@@ -1,0 +1,30 @@
+{
+  "id": "tile-stack",
+  "title": "Tile Stack",
+  "description": "Pick three matching farm tiles from layered stacks into a 7-slot tray, use undo, pop-out and shuffle tools, and clear every layer to win.",
+  "genre": "casual",
+  "style": "anime",
+  "setting": "fantasy",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap unblocked tiles to move them to the 7-slot tray; three matching tiles clear automatically. Use Undo, Pop-out and Shuffle wisely.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "orientation": "portrait",
+  "tags": [
+    "top赚钱"
+  ],
+  "i18n": {
+    "zh-CN": {
+      "title": "叠叠消",
+      "description": "多层堆叠三消益智玩法：从层叠牌堆挑出三个相同图案消除，善用移出、撤回与洗牌通关。",
+      "controls": "点击未被遮挡的卡牌放入底部 7 格卡槽，凑齐 3 张相同卡牌自动消除；底部支持移出、撤回、洗牌道具。"
+    }
+  }
+}

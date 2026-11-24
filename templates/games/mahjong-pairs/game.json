@@ -1,0 +1,30 @@
+{
+  "id": "mahjong-pairs",
+  "title": "Mahjong Pairs",
+  "description": "Slide rows and columns of classic mahjong tiles to line up matching pairs and clear every tile from the board.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": "retro",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap adjacent matching tiles or drag a row/column to slide tiles together and eliminate matching pairs.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "orientation": "portrait",
+  "tags": [
+    "top赚钱"
+  ],
+  "i18n": {
+    "zh-CN": {
+      "title": "雀神对对消",
+      "description": "推动麻将牌行或列，让相同牌面相邻并成对消除，巧用洗牌与提示清空整盘。",
+      "controls": "点击相邻的两张相同麻将直接消除，或拖动整行/整列推牌对齐后消除。"
+    }
+  }
+}
