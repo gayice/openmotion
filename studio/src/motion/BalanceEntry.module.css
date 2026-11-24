@@ -9,15 +9,15 @@
 }
 .ringTrack { fill: none; stroke: var(--motion-border); stroke-width: 2; }
 .ringFill { fill: none; stroke: var(--motion-brand); stroke-width: 2; stroke-linecap: round; }
-/* The initial on a green disc, as in the OpenDesign app's account avatar, inset so the ring keeps a gap. */
+/* The initial on a quiet grey disc, inset so the ring keeps a gap; the ring carries the only colour. */
 .face {
   display: grid;
   place-items: center;
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: linear-gradient(145deg, var(--color-brand-gradient-to), color-mix(in srgb, var(--color-brand-gradient-to) 62%, var(--motion-on-brand)));
-  color: var(--motion-black-friday-ink-light);
+  background: var(--motion-hover);
+  color: var(--motion-text);
   font-size: var(--motion-text-xs);
   font-weight: var(--motion-weight-semibold);
   line-height: 1;
