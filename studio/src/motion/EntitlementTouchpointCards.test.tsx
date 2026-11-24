@@ -36,6 +36,7 @@ describe('Plus resolution cap & insufficient balance helpers', () => {
   });
 
   it('matches insufficient balance errors and never triggers on 429/503/rate limits', () => {
+    expect(isInsufficientBalanceError('Your OpenDesign balance is too low for this request. Top up in OpenDesign Console, then try again.')).toBe(true);
     expect(isInsufficientBalanceError('402 Payment Required: insufficient credits')).toBe(true);
     expect(isInsufficientBalanceError('可用余额不足，请充值')).toBe(true);
     expect(isInsufficientBalanceError('HTTP 503 Service Unavailable')).toBe(false);

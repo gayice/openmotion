@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createCloudTracking } from './cloud-tracking.ts';
+import { createCloudTracking } from '../../src/cloud-tracking.ts';
 
 const VALID_TOKEN = 'phc_testToken1234567890';
 const TEST_RUN_UUID = '33333333-3333-4333-8333-333333333333';

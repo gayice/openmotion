@@ -217,7 +217,7 @@ export function isInsufficientBalanceError(error: string | null | undefined): bo
   if (/\b(429|503|502|504)\b|rate[\s_-]?limit|too many requests|concurrent|service unavailable|timed?\s?out/i.test(error)) {
     return false;
   }
-  return /\b402\b|insufficient[\s_-]?(balance|credit|credits|funds|quota)|low[\s_-]?balance|out of credits|not enough credits|余额不足|额度不足/i.test(error);
+  return /\b402\b|insufficient[\s_-]?(balance|credit|credits|funds|quota)|balance is too low|low[\s_-]?balance|out of credits|not enough credits|余额不足|额度不足/i.test(error);
 }
 
 let cachedAccountSummary: CloudAccountSummary | null = null;

@@ -317,7 +317,12 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
   const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
   const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
-  const activeResolution = parameters.values.resolution ?? draft.parameters?.resolution ?? selected?.defaults?.resolution;
+  const effectiveParameters = (() => {
+    if (!selected) return undefined;
+    try { return requestParameters(parameters, selected, draft.references.length > 0, activeDefaultValues); }
+    catch { return undefined; }
+  })();
+  const activeResolution = effectiveParameters?.resolution ?? parameters.values.resolution ?? draft.parameters?.resolution ?? selected?.defaults?.resolution;
   const planResCap = isHostedSelected && !hostedPlanUpgrade && draft.modality === 'image'
     ? imageResolutionCap(account, selected?.modelId)
     : undefined;

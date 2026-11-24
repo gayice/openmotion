@@ -2,8 +2,17 @@ import { Button } from 'open-design-ui/button';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
 import { openEntitlementModal, type EntitlementHookId } from './entitlementModalBus';
-import { trackMotion } from './tracking';
 import './EntitlementTouchpointCards.css';
+
+function trackGateClick(payload: {
+  page_name: 'creative_studio' | 'assets';
+  area: 'entitlement_gate';
+  element: 'sign_in' | 'view_plans' | 'select_model' | 'open_pricing';
+  hook_id: EntitlementHookId;
+}) {
+  if (typeof window === 'undefined') return;
+  void import('./tracking').then(({ trackMotion }) => trackMotion('ui_click', payload));
+}
 
 /**
  * U6 · Inline guest sign-in card on Web Cloud generation forms
@@ -23,7 +32,7 @@ export function GuestSignInInlineGate({ hookId = 'studio_generate' }: { hookId?:
           className="om-button h-auto"
           data-primary
           onClick={() => {
-            void trackMotion('ui_click', { page_name: 'creative_studio', area: 'entitlement_gate', element: 'sign_in', hook_id: hookId });
+            trackGateClick({ page_name: 'creative_studio', area: 'entitlement_gate', element: 'sign_in', hook_id: hookId });
             openEntitlementModal({ mode: 'guest', hookId });
           }}
         >
@@ -59,7 +68,7 @@ export function FreePlanGenerationGate({
           className="om-button h-auto"
           data-primary
           onClick={() => {
-            void trackMotion('ui_click', { page_name: 'creative_studio', area: 'entitlement_gate', element: 'view_plans', hook_id: hookId });
+            trackGateClick({ page_name: 'creative_studio', area: 'entitlement_gate', element: 'view_plans', hook_id: hookId });
             openEntitlementModal({ mode: 'upgrade', hookId });
           }}
         >
@@ -102,7 +111,7 @@ export function ResolutionCapGenerationGate({
           className="om-button h-auto"
           data-primary
           onClick={() => {
-            void trackMotion('ui_click', { page_name: 'creative_studio', area: 'entitlement_gate', element: 'select_model', hook_id: hookId });
+            trackGateClick({ page_name: 'creative_studio', area: 'entitlement_gate', element: 'select_model', hook_id: hookId });
             onDowngrade();
           }}
         >
@@ -112,7 +121,7 @@ export function ResolutionCapGenerationGate({
           variant="plain"
           className="om-button h-auto"
           onClick={() => {
-            void trackMotion('ui_click', { page_name: 'creative_studio', area: 'entitlement_gate', element: 'view_plans', hook_id: hookId });
+            trackGateClick({ page_name: 'creative_studio', area: 'entitlement_gate', element: 'view_plans', hook_id: hookId });
             openEntitlementModal({ mode: 'upgrade', hookId });
           }}
         >
@@ -141,7 +150,7 @@ export function InsufficientBalanceFailureGate({ hookId = 'failure_card_topup' }
           className="om-button h-auto"
           data-primary
           onClick={() => {
-            void trackMotion('ui_click', { page_name: 'creative_studio', area: 'entitlement_gate', element: 'open_pricing', hook_id: hookId });
+            trackGateClick({ page_name: 'creative_studio', area: 'entitlement_gate', element: 'open_pricing', hook_id: hookId });
             openEntitlementModal({ mode: 'upgrade', hookId });
           }}
         >
@@ -170,7 +179,7 @@ export function SessionExpiredInlineGate({ hookId = 'session_expired_401' }: { h
           className="om-button h-auto"
           data-primary
           onClick={() => {
-            void trackMotion('ui_click', { page_name: 'creative_studio', area: 'entitlement_gate', element: 'sign_in', hook_id: hookId });
+            trackGateClick({ page_name: 'creative_studio', area: 'entitlement_gate', element: 'sign_in', hook_id: hookId });
             openEntitlementModal({ mode: 'guest', hookId });
           }}
         >
@@ -199,7 +208,7 @@ export function AssetsGuestEmptyState() {
         className="om-button h-auto"
         data-primary
         onClick={() => {
-          void trackMotion('ui_click', { page_name: 'assets', area: 'entitlement_gate', element: 'sign_in', hook_id: 'assets_empty' });
+          trackGateClick({ page_name: 'assets', area: 'entitlement_gate', element: 'sign_in', hook_id: 'assets_empty' });
           openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' });
         }}
       >
