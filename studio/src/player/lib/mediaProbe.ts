@@ -88,10 +88,14 @@ function getCachedProbe(url: string): MediaProbeResult | undefined {
   return cached?.result;
 }
 
-function resolveProbeSource(src: string, projectId: string | null): string {
-  return projectId
-    ? resolveMediaPreviewUrl(authoredSrcPath(src), projectId, window.location.origin)
-    : src;
+function resolveProbeSource(src: string, projectId: string | null): string | null {
+  if (projectId) {
+    return resolveMediaPreviewUrl(authoredSrcPath(src), projectId, window.location.origin);
+  }
+  // Never probe bare project-relative paths (e.g. "assets/soundtrack.m4a") without a
+  // projectId; on /editor/<id> semantic routes the browser resolves them to /editor/... (404).
+  if (!/^(?:https?:|data:|blob:|\/)/i.test(src)) return null;
+  return src;
 }
 
 function evictMetadataOverflow(): void {
@@ -119,7 +123,8 @@ export function applyCachedSourceDurations<
   return elements.map((el) => {
     const tag = el.tag.toLowerCase();
     if (!el.src || el.sourceDuration != null || (tag !== "audio" && tag !== "video")) return el;
-    const cached = getCachedProbe(resolveProbeSource(el.src, projectId));
+    const source = resolveProbeSource(el.src, projectId);
+    const cached = source ? getCachedProbe(source) : undefined;
     return cached?.duration && cached.duration > 0
       ? { ...el, sourceDuration: cached.duration }
       : el;
@@ -147,6 +152,7 @@ export async function probeMissingSourceDurations<
       return [];
     }
     const source = resolveProbeSource(el.src, projectId);
+    if (!source) return [];
     return !getCachedProbe(source) && !hasFreshFailure(normalizeUrl(source))
       ? [{ el, source }]
       : [];

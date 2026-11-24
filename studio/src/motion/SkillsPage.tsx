@@ -19,7 +19,8 @@ import { ComingSoonGuide } from './ComingSoonGuide';
 import { GitHubMark } from '../../../packages/design-system/react/GitHubMark';
 import { MotionIcon } from './icons';
 import { motionApi } from './useWorkspace';
-import { setupGuideUrl, type IntegrationInfo } from '../../../shared/integration';
+import { isStreamableHttpTransport, setupGuideUrl, type IntegrationInfo } from '../../../shared/integration';
+import { getCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { AssetPicker } from './AssetBrowser';
 import { Popover } from '../components/ui/Popover';
 import { Tooltip } from '../components/ui/Tooltip';
@@ -60,11 +61,21 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
   const detailClose = useRef<HTMLButtonElement>(null);
   const studioDefaults = useMemo<SkillParameters>(() => studioSkillDefaults(studio?.id), [studio]);
   const [parameters, setParameters] = useState<SkillParameters>(studioDefaults), [manualCopy, setManualCopy] = useState<{ text: string; surface: 'instruction' | 'command' } | null>(null);
-  // Same install guide as template instructions; the repository guide is the fallback until the service answers.
-  const [installUrl, setInstallUrl] = useState(() => setupGuideUrl(null));
+  // Same install guide as template instructions; cloud web points at /mcp-setup, local falls back to the repository guide.
+  const [cloudMcp, setCloudMcp] = useState(() => getCachedCloudDisklessMode());
+  const [installUrl, setInstallUrl] = useState(() => (
+    getCachedCloudDisklessMode() && typeof window !== 'undefined'
+      ? `${window.location.origin.replace(/\/+$/, '')}/mcp-setup`
+      : setupGuideUrl(null)
+  ));
   useEffect(() => {
     let cancelled = false;
-    motionApi<IntegrationInfo>('/integration').then(info => { if (!cancelled) setInstallUrl(setupGuideUrl(info)); }).catch(() => {});
+    motionApi<IntegrationInfo>('/integration').then(info => {
+      if (cancelled) return;
+      const isCloud = isStreamableHttpTransport(info.transport);
+      setCloudMcp(isCloud);
+      setInstallUrl(isCloud ? `${info.previewUrl.replace(/\/+$/, '')}/mcp-setup` : setupGuideUrl(info));
+    }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
   const instruction = useRef<HTMLPreElement>(null), command = useRef<HTMLPreElement>(null), search = useRef<HTMLInputElement>(null);
@@ -127,8 +138,8 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
     tracking.reportSkillCategory(value, matching(value, query).length);
   };
   // The instruction follows the interface language, including the example brief and borrowed technique.
-  const prompt = selected ? localizedSkillPrompt(selected, parameters, locale, installUrl, t) : '';
-  const shortcut = selected ? skillShortcut({ ...selected, title: displayName(selected), example: t(selected.example) }, parameters, locale, installUrl) : '';
+  const prompt = selected ? localizedSkillPrompt(selected, parameters, locale, installUrl, t, cloudMcp) : '';
+  const shortcut = selected ? skillShortcut({ ...selected, title: displayName(selected), example: t(selected.example) }, parameters, locale, installUrl, cloudMcp) : '';
   const latest = useRef({ instruction: prompt, command: shortcut }); latest.current = { instruction: prompt, command: shortcut };
   const open = (skill: MotionSkill, position: number) => { if (!selected) captureLayout(); tracking.reportSkillCardOpened(skill, position, searchId.current); onSkillChange(skill.id); };
   // A failed copy keeps its exact text for manual copying only until the brief changes; then show the live text again.

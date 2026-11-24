@@ -149,6 +149,7 @@ export function resolveMediaPreviewUrl(
     try {
       relativePath = parsed.pathname
         .replace(/^\/+/, "")
+        .replace(/^editor\//, "")
         .split("/")
         .map(decodeURIComponent)
         .join("/");

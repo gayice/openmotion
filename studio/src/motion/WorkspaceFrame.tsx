@@ -48,6 +48,7 @@ import { OverlayLayer } from '../router/OverlayLayer';
 import { StudioRouterProvider } from '../router/createAppRouter';
 import { useWorkspaceBlocker } from '../router/useWorkspaceBlocker';
 import { isCloudFeatureEnabled, useCloudFeatureEnabled } from '../utils/cloudFeatures';
+import { isSpaRoutePath } from '../../../shared/spa-routes';
 
 import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
 export { useWorkspaceChrome, useOptionalWorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
@@ -146,15 +147,17 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       navigatePage({ settings: 'providers', mcpInSettings: false, assets: false, skills: false, templates: false }, true);
       return;
     }
+    const unknownRoute = location.pathname !== '/' && !isSpaRoutePath(location.pathname);
     if (
-      (page.settings === 'brand-kit' && !brandKitEnabled)
+      unknownRoute
+      || (page.settings === 'brand-kit' && !brandKitEnabled)
       || (page.designScene && !designStudioEnabled)
       || ((page.scenarioHub || page.scenario) && !workflowsEnabled)
       || (page.specialty?.id === 'game' && !gameStudioEnabled)
     ) {
       navigatePage({ explore: true, templates: false, ...lastExplore.current }, true);
     }
-  }, [page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, localAgentsEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, navigatePage]);
+  }, [location.pathname, page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, localAgentsEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, navigatePage]);
   const presentation = workspacePresentation(location.search);
   const guard = useRef<EditorGuard | null>(null);
   const [editorState, setEditorState] = useState<Pick<EditorGuard, 'blocked' | 'saveState' | 'message'> | null>(null);

@@ -592,7 +592,7 @@ export function TemplateLibraryDialog(props: Props) {
     async function loadPrompt() {
       try {
         const connection = info.current ?? await motionApi<IntegrationInfo>('/integration'); info.current = connection;
-        if (!cancelled) setPrompt(handoffPreview || blackFridayReference(preview!.id, locale) ? templateHandoffPrompt(preview!, locale) : templatePrompt(connection, 'codex', preview!, locale));
+        if (!cancelled) setPrompt(handoffPreview || blackFridayReference(preview!.id, locale) ? templateHandoffPrompt(preview!, locale, connection) : templatePrompt(connection, 'codex', preview!, locale));
       } catch { if (!cancelled) setPromptError(true); }
     }
     void loadPrompt();
@@ -750,6 +750,14 @@ export function TemplateLibraryDialog(props: Props) {
       </div>
       {loading && !catalog.length && <span className={styles.visuallyHidden} role="status">{t('Loading templates…')}</span>}
       {error && <div className={styles.empty} role="alert"><p>{t(error)}</p><Button variant="plain" onClick={() => retry(value => value + 1)}>{t('Retry')}</Button></div>}
+      {showEmptyRecovery && !showRecovery && <div className={styles.empty} role="status">
+        <p>{t('No templates match the current conditions.')}</p>
+        {(query.trim() || hasAppliedFilters) && <Button variant="ghost" className="om-button h-auto" onClick={() => {
+          if (hasAppliedFilters) reset();
+          if (query.trim()) clearSearch();
+          search.current?.focus();
+        }}>{t(hasAppliedFilters ? 'Clear filters' : 'Clear search')}</Button>}
+      </div>}
       {props.open && <div data-search-recovery="" hidden={!showRecovery}>
         <TemplateSearchRecovery visible={showRecovery} query={query} context={listContext()} reason={!catalog.length ? 'catalog_empty' : showEmptyRecovery ? 'no_results' : 'unsuitable'} expanded={showEmptyRecovery || recoveryExpanded}
           searchAction={showEmptyRecovery && (!catalog.length ? <Button variant="ghost" className="om-button h-auto" onClick={() => retry(value => value + 1)}>{t('Reload')}</Button>
@@ -758,8 +766,11 @@ export function TemplateLibraryDialog(props: Props) {
               else if (suggestedRemoval.key === 'top') chooseBrands(false);
               else toggle(suggestedRemoval.key, suggestedRemoval.value);
             }}>{t('Remove {condition} · Show {results}', { condition: suggestedRemoval.label, results: suggestedRemoval.count === 1 ? t('1 template') : t('{count} templates', { count: suggestedRemoval.count }) })}</Button>
-              : query.trim() ? <Button variant="ghost" className="om-button h-auto" onClick={() => search.current?.focus()}>{t('Edit search')}</Button>
-                : hasAppliedFilters ? <Button variant="ghost" className="om-button h-auto" onClick={reset}>{t('Clear filters')}</Button> : null)}
+              : query.trim() || hasAppliedFilters ? <Button variant="ghost" className="om-button h-auto" onClick={() => {
+                  if (hasAppliedFilters) reset();
+                  if (query.trim()) clearSearch();
+                  search.current?.focus();
+                }}>{t(hasAppliedFilters ? 'Clear filters' : 'Clear search')}</Button> : null)}
           onExpand={expandSearchRecovery} onActivity={searchRecoveryActivity} showToast={(message, kind) => showToast(message, kind, 'feedback')} />
       </div>}
     </main>}
