@@ -171,7 +171,8 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     else parentWindow.postMessage(message,targetOrigin);
   }
   function ready(){
-    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:settings.liveEdits,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
+    var mountedVersions=settings.smallMountedSources&&Object.fromEntries(settings.smallMountedSources.map(function(path){return [path,sourceIdentity(sourceVersions[path]).fileVersion];}));
+    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:settings.liveEdits,mountedVersions:mountedVersions,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
     var state=timeline(true);
     if(state.duration>0){
       durationBootAnnounced=true;
@@ -358,9 +359,12 @@ function htmlAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export function bridgeDocumentTags(origin: string, projectId: string, compositionPath: string, sourceVersions: Record<string, string>, studioOrigin?: string, canRebindTiming?: boolean, htmlSources?: string[], liveEdits?: PreviewLiveEdits) {
+export function bridgeDocumentTags(origin: string, projectId: string, compositionPath: string, sourceVersions: Record<string, string>, options: {
+  studioOrigin?: string; canRebindTiming?: boolean; htmlSources?: string[]; liveEdits?: PreviewLiveEdits; smallMountedSources?: string[];
+} = {}) {
+  const { studioOrigin, canRebindTiming, htmlSources, liveEdits, smallMountedSources } = options;
   const src = new URL(PREVIEW_BRIDGE_ASSET, origin);
-  const settings = htmlAttribute(JSON.stringify({ projectId, compositionPath, sourceVersions, studioOrigin, htmlSources, liveEdits, ...(canRebindTiming && { canRebindTiming }) }));
+  const settings = htmlAttribute(JSON.stringify({ projectId, compositionPath, sourceVersions, studioOrigin, htmlSources, liveEdits, smallMountedSources, ...(canRebindTiming && { canRebindTiming }) }));
   // A pod from before this route existed may still serve an asset request
   // during rollout. Reuse the player's bounded preview retry if loading fails.
   const retry = htmlAttribute(previewBuildBusyScript(projectId, 1));

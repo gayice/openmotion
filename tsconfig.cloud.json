@@ -16,6 +16,7 @@
     "shared/signed-config.ts",
     "shared/engine-command-contract.ts",
     "shared/connect-script-protocol.ts",
+    "shared/inline-onboarding-renderer.ts",
     "packages/observability/config.ts",
     "packages/observability/sanitize.ts",
     "packages/observability/index.ts",
