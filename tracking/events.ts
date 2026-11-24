@@ -125,6 +125,8 @@ export const omEvents = {
     last_stage: accountStages, last_result: ['started', 'success', 'failed'], error_kind: accountErrorKinds, browser_opened: 'boolean',
     receipt: ['accepted', 'rejected'], exit_code: 'integer', duration_ms: 'integer', prepare_ms: 'integer', link_ms: 'integer', approved_ms: 'integer' },
     required: ['attempt_id', 'outcome', 'connector_version', 'resumed', 'duration_ms'] },
+  entitlement_refresh_result: { producers: ['studio'], fields: { outcome: ['success', 'failure'], hook_id: entitlementHookIds, entry_id: 'uuid', plan_after: 'code' },
+    required: ['outcome'] },
   work_generation_stage: { producers: ['mcp', 'worker'], fields: {
     work_id: 'uuid', project_id: 'code', stage: ['started', 'generated', 'edited', 'exported'],
     task_type: ['create', 'modify'], version_id: 'code', revision: 'code',

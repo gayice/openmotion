@@ -26,12 +26,24 @@ export function EntitlementModalHost() {
       const pending = consumeExternalCheckoutPending();
       if (!pending) return;
       void (async () => {
+        const reportRefresh = (outcome: 'success' | 'failure', planAfter?: string) => {
+          if (typeof window === 'undefined') return;
+          void import('./tracking').then(({ trackMotion }) => trackMotion('entitlement_refresh_result', {
+            outcome,
+            ...(pending.hookId ? { hook_id: pending.hookId } : {}),
+            ...(pending.entryId ? { entry_id: pending.entryId } : {}),
+            ...(planAfter ? { plan_after: planAfter } : {}),
+          }));
+        };
         try {
-          await gatewayRequest('account/summary?refresh=true');
+          const summary = await gatewayRequest<{ plan?: string | null; billing?: { plan?: string | null } }>('account/summary?refresh=true');
           notifyProvidersChanged();
           window.dispatchEvent(new Event('motion:account-changed'));
+          const rawPlan = summary?.plan ?? summary?.billing?.plan;
+          const planAfter = typeof rawPlan === 'string' && rawPlan.trim() ? rawPlan.trim().toLowerCase().replace(/\s+/g, '_') : undefined;
+          reportRefresh('success', planAfter);
         } catch {
-          // Best-effort refresh on window return
+          reportRefresh('failure');
         }
       })();
     };
