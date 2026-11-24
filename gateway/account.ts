@@ -12,6 +12,7 @@ import { readSettings, writeSettings } from './settings-storage.ts';
 import { planMediaEntitlement } from './account-media.ts';
 import { registeredProvider } from '../shared/provider-registry.ts';
 import { defaultVideoAudioEnabled, resolveGenerationParameters } from '../shared/generation-options.ts';
+import { hydrateOpenDesignModelMetadata, parseServerModelRoutingMetadata } from '../shared/opendesign-models.ts';
 import { apiJson, ProviderError, retryRead, type Fetcher } from './network.ts';
 import { cloudImageParameters, mediaSubmitHeaders, productionApi, uploadInputs } from './opendesign.ts';
 import type { ProviderContext } from './providers.ts';
@@ -188,7 +189,8 @@ const builtinAccountAudioModels: readonly DirectoryModel[] = [
 ];
 const withBuiltinAudio = (models: DirectoryModel[]): DirectoryModel[] => {
   const existing = new Set(models.map(model => model.id));
-  return [...models, ...builtinAccountAudioModels.filter(model => !existing.has(model.id)).map(model => ({ ...model }))];
+  return [...models, ...builtinAccountAudioModels.filter(model => !existing.has(model.id)).map(model => ({ ...model }))]
+    .map(model => model.kind === 'text' ? model : hydrateOpenDesignModelMetadata(model));
 };
 
 /** OpenDesign's versioned CLI owns device authorization and credentials. */
@@ -836,6 +838,7 @@ export class OpenDesignAccount {
       const maxInputs = capabilities && Number.isInteger(capabilities.max_input_images) && (capabilities.max_input_images as number) > 0 ? capabilities.max_input_images as number : undefined;
       models.push({
         id: 'account:' + row.model, provider: 'account', modelId: row.model, label: row.model, kind, enabled: row.enabled !== false, source: 'live', mode,
+        ...parseServerModelRoutingMetadata(row),
         ...(editable ? { supportsImageReference: true, ...(Number.isInteger(capabilities?.max_input_images) && (capabilities!.max_input_images as number) > 0 ? { maxInputImages: capabilities!.max_input_images as number } : {}) } : {}),
         ...(kind === 'video' && maxInputs ? { maxInputImages: 1 } : {}),
         ...(capabilities ? { nativeOptions: capabilities } : {}),
