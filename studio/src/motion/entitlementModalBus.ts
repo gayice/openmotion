@@ -1,3 +1,5 @@
+import { getCachedCloudDisklessMode, useCloudDisklessMode } from '../utils/cloudRuntime';
+
 export const ENTITLEMENT_HOOK_IDS = [
   'header_signin',
   'settings_signin',
@@ -32,15 +34,18 @@ type ModalListener = (request: EntitlementModalRequest) => void;
 const listeners = new Set<ModalListener>();
 let pendingCheckout: { hookId?: EntitlementHookId; entryId?: string; at: number } | null = null;
 
-const isTestEnvironment = typeof process !== 'undefined' && Boolean(process.env?.VITEST);
-
 export function hasEntitlementModalListeners(): boolean {
   return listeners.size > 0;
 }
 
-/** True when running in the real Web Cloud browser (never affected by mount-order races; disabled in unit tests). */
+/** True when running in Cloud diskless web mode (never enables cloud-only monetization in local/self-hosted Studio). */
 export function isCloudWebMode(): boolean {
-  return typeof window !== 'undefined' && !isTestEnvironment;
+  return getCachedCloudDisklessMode();
+}
+
+/** Reactive React hook returning whether Studio is running in Cloud diskless web mode. */
+export function useCloudWebMode(): boolean {
+  return useCloudDisklessMode();
 }
 
 export function openEntitlementModal(request: EntitlementModalRequest): void {

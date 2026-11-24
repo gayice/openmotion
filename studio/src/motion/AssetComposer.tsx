@@ -29,7 +29,7 @@ import { isOpenDesignProvider, modelFamilyLabel, providerDisplayName } from './i
 import { registeredProvider } from '../../../shared/provider-registry';
 import { ProviderSetupNotice } from './ProviderSetupNotice';
 import { upgradePlan, useAccountSummary } from './AccountSettings';
-import { hasEntitlementModalListeners, isCloudWebMode, openEntitlementModal } from './entitlementModalBus';
+import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 import { FreePlanGenerationGate } from './EntitlementTouchpointCards';
 
 export interface AssetDraft { modality: Modality; prompt: string; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; references: { reference: AssetReference; name: string }[] }
@@ -312,9 +312,9 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     {modelHeading}
     {failed ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button> : !gateway ? <Skeleton className="om-asset-model-skeleton" /> : openDesignMissing ? openDesignSetup : manageProvidersNotice}
   </>;
-  const { account } = useAccountSummary({ eager: false });
-  const cloudWeb = isCloudWebMode();
-  const cloudGuestSubmit = cloudWeb && account?.state !== 'signed-in';
+  const cloudWeb = useCloudWebMode();
+  const { account } = useAccountSummary({ eager: cloudWeb });
+  const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
   const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
   const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
   const entitlementGate = hostedPlanUpgrade

@@ -3,11 +3,11 @@
   padding: 0;
   margin: 0;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   max-width: none;
   max-height: none;
   background: transparent;
-  overflow: visible;
+  overflow: auto;
 }
 .om-epm-dialog::backdrop {
   background: var(--motion-entitlement-scrim);
@@ -17,7 +17,9 @@
   inset: 0;
   z-index: 95;
   display: grid;
-  place-items: center;
+  align-items: safe center;
+  justify-items: center;
+  overflow-y: auto;
   padding: 16px;
   animation: omEpmFadein 0.3s ease-out;
   font-family: "Albert Sans", -apple-system, "PingFang SC", system-ui, sans-serif;
@@ -39,13 +41,14 @@
 
 .om-epm-modal {
   position: relative;
-  width: 1180px;
+  width: min(1180px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
   height: auto;
   flex: none;
   border-radius: 24px;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 190px 1fr 190px;
+  grid-template-columns: 190px minmax(0, 1fr) 190px;
   background: var(--motion-entitlement-surface);
   border: 1px solid var(--motion-entitlement-border);
   box-shadow: 0 40px 120px var(--motion-entitlement-shadow), inset 0 1px 0 color-mix(in srgb, var(--motion-entitlement-ink-strong) 6%, transparent);
@@ -469,3 +472,65 @@
 }
 
 .om-epm-strip-audio { background: radial-gradient(circle at 50% 40%, var(--motion-entitlement-audio-glow), var(--motion-entitlement-surface-deep) 75%); }
+
+/* Responsive layout for narrow viewports (e.g. 375px mobile) and 200% browser zoom:
+   hide side reels, switch to a single scrollable column, and preserve readable typography
+   and tappable CTA hit targets without scaling via CSS zoom. */
+@media (max-width: 960px), (max-height: 680px) {
+  .om-epm-mask {
+    padding: 12px;
+  }
+  .om-epm-modal {
+    width: min(680px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+    border-radius: 20px;
+  }
+  .om-epm-side {
+    display: none;
+  }
+  .om-epm-main {
+    padding: 28px 22px 24px;
+  }
+}
+
+@media (max-width: 600px) {
+  .om-epm-mask {
+    padding: 10px;
+  }
+  .om-epm-modal {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+    border-radius: 18px;
+  }
+  .om-epm-main {
+    padding: 24px 16px 20px;
+    gap: 14px;
+  }
+  .om-epm-h1 {
+    font-size: clamp(22px, 6.2vw, 28px);
+    line-height: 1.22;
+  }
+  .om-epm-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .om-epm-models {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+  }
+  .om-epm-cta {
+    width: 100%;
+    min-height: 46px;
+    font-size: 15px;
+  }
+  .om-epm-card h4 {
+    font-size: 14px;
+  }
+  .om-epm-card p,
+  .om-epm-price {
+    font-size: 13px;
+  }
+}

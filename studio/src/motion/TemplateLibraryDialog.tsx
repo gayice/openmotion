@@ -46,7 +46,7 @@ import { TemplateHandoffSteps, TemplateOpenRecovery, type TemplateOpenProgress }
 import { TemplateDetailReview, TemplateProductionNotes, TemplateGuideReview, TemplateReviewSpecs } from './TemplateDetailReview';
 import { templateHandoffEnabled, templateHandoffPrompt, preparedTemplateProjects, pendingTemplateProjects, rememberTemplateRequest, forgetTemplateRequest, TemplatePreparationBlockedError, findPreparedTemplate, type PreparedTemplateProject } from './templateHandoff';
 import { useAccountSummary } from './AccountSettings';
-import { isCloudWebMode, openEntitlementModal } from './entitlementModalBus';
+import { openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 
 type Filters = Partial<Record<Facet, string[]>>;
 type CampaignSearch = { query: string; filter: BlackFridayFilter };
@@ -93,7 +93,8 @@ function DetailScroll({ enabled, container, children }: { enabled: boolean; cont
 
 export function TemplateLibraryDialog(props: Props) {
   const { t, locale } = useI18n();
-  const { account } = useAccountSummary({ eager: false });
+  const cloudWeb = useCloudWebMode();
+  const { account } = useAccountSummary({ eager: cloudWeb });
   const { detailOnly = false, initialTemplate } = props;
   const [storiesPreview] = useState(() => new URLSearchParams(location.search).get('brandStoriesPreview') === '1');
   const [discoverySeed] = useState(() => Math.floor(Math.random() * 4294967296));
@@ -830,7 +831,7 @@ export function TemplateLibraryDialog(props: Props) {
               </Popover>}
             </header>{(manualCopy ? <textarea className={styles.manualCopy} readOnly rows={8} value={manualCopy} aria-label={t('Content to copy')} onFocus={event => event.currentTarget.select()} /> : prompt ? <p className={promptExpanded ? styles.fullInstruction : styles.shortInstruction}>{prompt}</p> : promptError ? <div className={styles.promptFailure} role="status">{t('Could not load the instruction.')}<Button variant="plain" onClick={() => retryPrompt(value => value + 1)}>{t('Retry')}</Button></div> : <div className={styles.promptSkeleton} role="status" aria-label={t('Loading instruction…')}>{[100, 94, 100, 86, 62].map((width, index) => <Skeleton key={index} style={{ width: `${width}%`, height: 10 }} />)}</div>)}<Button variant="plain" disabled={!prompt} className={`om-text-link ${styles.expandInstruction}`} data-quiet aria-expanded={promptExpanded} onClick={() => { tracking.reportInstructionExpanded(preview, !promptExpanded, detailView.current); setPromptExpanded(!promptExpanded); }}>{t(promptExpanded ? 'Show less' : 'Show instruction')}<MotionIcon name="chevron-down" size={14} /></Button></section>
             {!handoffPreview && <div className={styles.actions}>
-              {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); if (isCloudWebMode() && account?.state !== 'signed-in') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } closeDetail(); props.onOpen(preview.id); }}>{t('Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
+              {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } closeDetail(); props.onOpen(preview.id); }}>{t('Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
               <div className={styles.recreateActions}>
                 <Button variant="ghost" className="om-button h-auto" data-primary disabled={!prompt} onClick={() => void copy()}>{t('Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
                 <Tooltip withinDialog wrap label={t('Recreate and submit')}><IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} onClick={() => void copy(true)} aria-label={t('Recreate and submit')} icon={<MotionIcon name="git-branch" size={17} />} /></Tooltip>
@@ -856,7 +857,7 @@ export function TemplateLibraryDialog(props: Props) {
           </div>
           {handoffPreview && <div ref={reviewFooter} className={styles.reviewFooter} role="group" aria-label={t('Template actions')}>
               <div className={styles.handoffActions}>
-                {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => { if (isCloudWebMode() && account?.state !== 'signed-in') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } void prepareProject(preview); }}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
+                {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => { if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } void prepareProject(preview); }}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
                 <div className={styles.recreateActions}>
                   <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t('Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
                   <Tooltip withinDialog wrap label={t('Contribute a template')} description={t('Copy contribution instructions for source, a preview and credits.')}>

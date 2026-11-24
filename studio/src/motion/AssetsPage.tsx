@@ -38,14 +38,15 @@ import { imageModelLabel, isOpenDesignProvider } from './imageMenuModels';
 import { AssetGalleryToolbar } from './AssetGalleryToolbar';
 import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { useAccountSummary } from './AccountSettings';
-import { isCloudWebMode, openEntitlementModal } from './entitlementModalBus';
+import { openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 import { AssetsGuestEmptyState } from './EntitlementTouchpointCards';
 import './assets.css';
 
 export function AssetsPage({ active, hasProject = false, studio, routeId, routeVersion, onAssetRoute }: { routeId?: string | null; routeVersion?: string | null; onAssetRoute?: (id: string | null, version: string | null) => void; active: boolean; hasProject?: boolean; studio?: StudioCreation }) {
   const { t } = useI18n(), toast = useToast();
-  const { account } = useAccountSummary({ eager: false });
-  const isCloudGuest = isCloudWebMode() && account?.state !== 'signed-in';
+  const cloudWeb = useCloudWebMode();
+  const { account } = useAccountSummary({ eager: cloudWeb });
+  const isCloudGuest = cloudWeb && account?.state === 'signed-out';
   const cloudGuestAssets = !studio && isCloudGuest;
   const [kind, setKind] = useState<AssetKind>(studio?.destination.scene.modality ?? 'all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(Boolean(studio) && !studio?.openCreate), [picking, setPicking] = useState(false), [pickerMulti, setPickerMulti] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>([]), [sessionJobIds, setSessionJobIds] = useState<string[]>([]), [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());
   const [draft, setDraft] = useState<AssetDraft>(() => studio?.initialDraft ?? { modality: studio?.destination.scene.modality ?? 'image', prompt: '', references: [] });
@@ -631,12 +632,12 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     </div></div>}
     <div className="om-assets-library">
     {creating && studio && <ResizablePane className="om-creator-pane" storageKey="motion-studio-controls-width" initial={378} min={310} max={650} edge="right" label={t('Resize creator')}>{composer}</ResizablePane>}
-    <main ref={gallery} className="om-assets-main" onDragOver={e => { if (!mediaGenerations && e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (!mediaGenerations && e.dataTransfer.files.length) { e.preventDefault(); void importFiles(Array.from(e.dataTransfer.files), false, 'library_drop'); } }}>
+    <main ref={gallery} className="om-assets-main" onDragOver={e => { if (!mediaGenerations && e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (!mediaGenerations && e.dataTransfer.files.length) { e.preventDefault(); if (cloudGuestAssets) { openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' }); return; } void importFiles(Array.from(e.dataTransfer.files), false, 'library_drop'); } }}>
       {audioStudio?.openCreate ? <AudioStudioLanding destination={audioStudio.destination} active={active} onPrompt={audioStudio.openCreate} onCreate={() => audioStudio.openCreate?.()} /> : <>
       {studio ? <header className="om-assets-heading">{hasGuide ? <div className="om-choice-tabs" role="group" aria-label={t('Guide & assets')}>
         <Button variant="plain" className="om-nav-item" aria-pressed={guide} onClick={() => setStudioTab('guide')}>{t('How it works')}</Button>
         <Button variant="plain" className="om-nav-item" aria-pressed={!guide} onClick={() => setStudioTab('library')}>{t('Generations')}{activePlaceholderCount > 0 && <span className="om-badge om-tab-count" role="status">{activePlaceholderCount}</span>}</Button>
-      </div> : <h2 className="om-subtitle">{t('Generations')}</h2>}{!mediaGenerations && <div className="om-asset-actions">{taskMenu}</div>}</header> : <header className="om-assets-heading"><div><h1 className="om-title">{t(kind === 'trash' ? 'Trash' : 'Workspace assets')}</h1><p className="om-muted">{t('One library for every creation.')}</p></div><div className="om-asset-actions">{taskMenu}<Button variant="ghost" className="om-button h-auto" disabled={uploading} onClick={() => { tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</Button><Button variant="ghost" className="om-button h-auto" data-primary onClick={create}><RemixIcon name="add-line" size={16} />{t('AI Create')}</Button></div></header>}
+      </div> : <h2 className="om-subtitle">{t('Generations')}</h2>}{!mediaGenerations && <div className="om-asset-actions">{taskMenu}</div>}</header> : <header className="om-assets-heading"><div><h1 className="om-title">{t(kind === 'trash' ? 'Trash' : 'Workspace assets')}</h1><p className="om-muted">{t('One library for every creation.')}</p></div><div className="om-asset-actions">{taskMenu}<Button variant="ghost" className="om-button h-auto" disabled={uploading} onClick={() => { if (cloudGuestAssets) { openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' }); return; } tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</Button><Button variant="ghost" className="om-button h-auto" data-primary onClick={create}><RemixIcon name="add-line" size={16} />{t('AI Create')}</Button></div></header>}
 
       {cloudGuestAssets ? <AssetsGuestEmptyState /> : guide && studio ? <StudioIdeas destination={studio.destination} active={active} currentPrompt={draft.prompt} onPrompt={applyPrompt} /> : studio && isCloudGuest ? <AssetsGuestEmptyState /> : studio && (studio.destination.scene.modality === 'image' || studio.destination.scene.modality === 'video') ? (
         <MediaGenerationHistory

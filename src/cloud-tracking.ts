@@ -8,6 +8,7 @@ const SAFE_HOOK_ID = /^[a-z0-9_]{1,40}$/;
 
 export interface CloudTrackingHandle {
   isEnabled(): boolean;
+  lockReason(): 'environment' | null;
   acceptBrowserBatch(payload: unknown): number;
   trackWebSignInResult(params: {
     outcome: 'success' | 'failure' | 'cancelled';
@@ -16,6 +17,21 @@ export interface CloudTrackingHandle {
     userId?: string | null;
     durationMs?: number;
   }): void;
+}
+
+export function cloudTrackingLockReason(env: NodeJS.ProcessEnv = process.env): 'environment' | null {
+  const telemetry = (env.OPENMOTION_TELEMETRY ?? '').trim().toLowerCase();
+  const dnt = (env.DO_NOT_TRACK ?? '').trim();
+  return ['0', 'false', 'off'].includes(telemetry) || dnt === '1' ? 'environment' : null;
+}
+
+function disabledCloudTracking(reason: 'environment' | null): CloudTrackingHandle {
+  return {
+    isEnabled: () => false,
+    lockReason: () => reason,
+    acceptBrowserBatch: () => 0,
+    trackWebSignInResult: () => {},
+  };
 }
 
 export function sanitizeHookId(value: string | null | undefined): string | undefined {
@@ -33,42 +49,58 @@ export function sanitizeEntryId(value: string | null | undefined): string | unde
 /**
  * Env-controlled PostHog tracker for the Web Cloud API server.
  * Stays safely disabled unless OPENMOTION_TRACKING_ENABLED=1/true and a valid
- * public PostHog token (OPENMOTION_POSTHOG_TOKEN=phc_...) are configured.
+ * public PostHog token (OPENMOTION_POSTHOG_TOKEN=phc_...) are configured,
+ * and always honors OPENMOTION_TELEMETRY=0, DO_NOT_TRACK=1, test-context
+ * suppression, and fail-closed host validation.
  */
 export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv = process.env): CloudTrackingHandle {
+  const lockReason = cloudTrackingLockReason(env);
+  if (lockReason !== null) {
+    return disabledCloudTracking(lockReason);
+  }
+  const testing = Boolean(env.NODE_TEST_CONTEXT) || (env.NODE_ENV ?? '').trim().toLowerCase() === 'test';
+  if (testing && !(env.OPENMOTION_TRACKING_TEST_RUN_ID ?? '').trim()) {
+    return disabledCloudTracking(null);
+  }
+
   const flag = (env.OPENMOTION_TRACKING_ENABLED ?? '').trim().toLowerCase();
   const token = (env.OPENMOTION_POSTHOG_TOKEN ?? '').trim();
   const host = (env.OPENMOTION_POSTHOG_HOST ?? 'https://us.i.posthog.com').trim();
-  const rawEnv = (env.OPENMOTION_TRACKING_ENV ?? 'production').trim().toLowerCase();
+  const rawEnv = (env.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : 'production')).trim().toLowerCase();
   const trackingEnv: 'development' | 'test' | 'production' =
     rawEnv === 'development' || rawEnv === 'test' ? rawEnv : 'production';
 
   const shouldEnable = (flag === '1' || flag === 'true') && /^phc_[A-Za-z0-9_]+$/.test(token);
 
-  if (!shouldEnable) {
-    return {
-      isEnabled: () => false,
-      acceptBrowserBatch: () => 0,
-      trackWebSignInResult: () => {},
-    };
+  if (!shouldEnable || !host) {
+    return disabledCloudTracking(null);
   }
 
-  const sender = createPosthogSender({
-    host,
-    token,
-    identity: {
-      installation_id: crypto.randomUUID(),
-      utm_source: 'openmotion_web',
-      created_at: new Date().toISOString(),
-    },
-    appVersion,
-    env: trackingEnv,
-  });
+  let sender: ReturnType<typeof createPosthogSender>;
+  try {
+    sender = createPosthogSender({
+      host,
+      token,
+      identity: {
+        installation_id: crypto.randomUUID(),
+        utm_source: 'openmotion_web',
+        created_at: new Date().toISOString(),
+      },
+      appVersion,
+      env: trackingEnv,
+      testRunId: (env.OPENMOTION_TRACKING_TEST_RUN_ID ?? '').trim() || undefined,
+    });
+  } catch {
+    return disabledCloudTracking(null);
+  }
+
+  const isActive = () => cloudTrackingLockReason(env) === null;
 
   const studioTracker = createTracker({
     registry: studioEvents,
     entrypoint: 'studio',
     enabled: true,
+    isEnabled: isActive,
     send: sender,
   });
 
@@ -76,12 +108,15 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
     registry: omEvents,
     entrypoint: 'mcp',
     enabled: true,
+    isEnabled: isActive,
     send: sender,
   });
 
   return {
-    isEnabled: () => true,
+    isEnabled: isActive,
+    lockReason: () => cloudTrackingLockReason(env),
     acceptBrowserBatch(payload: unknown): number {
+      if (!isActive()) return 0;
       const items = Array.isArray(payload)
         ? payload
         : payload && typeof payload === 'object' && Array.isArray((payload as { events?: unknown }).events)
@@ -90,17 +125,15 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
       let accepted = 0;
       for (const raw of items.slice(0, MAX_BROWSER_BATCH_SIZE)) {
         if (!raw || typeof raw !== 'object') continue;
-        const record = raw as { event?: unknown; properties?: unknown };
-        if (typeof record.event !== 'string' || !Object.hasOwn(studioEvents, record.event)) continue;
-        const props = record.properties && typeof record.properties === 'object'
-          ? (record.properties as Record<string, unknown>)
-          : {};
-        const status = studioTracker.track(record.event as keyof typeof studioEvents, props as never);
+        const record = raw as { entrypoint?: unknown };
+        if (record.entrypoint !== 'studio') continue;
+        const status = studioTracker.ingest(raw);
         if (status === 'queued') accepted++;
       }
       return accepted;
     },
     trackWebSignInResult({ outcome, hookId, entryId, userId, durationMs }) {
+      if (!isActive()) return;
       const safeHook = sanitizeHookId(hookId) ?? 'openmotion_editor_login';
       const safeEntry = sanitizeEntryId(entryId);
       serverTracker.track('account_sign_in_result', {

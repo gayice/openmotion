@@ -57,7 +57,6 @@ export function EntitlementPromoModal({
 }: EntitlementPromoModalProps) {
   const { t, locale } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
   const [entryId, setEntryId] = useState(newCampaignEntryId);
   const [busy, setBusy] = useState(false);
 
@@ -80,23 +79,6 @@ export function EntitlementPromoModal({
       setBusy(false);
     }
   }, [open, mode, hookId]);
-
-  useEffect(() => {
-    if (!open) return;
-    const fit = () => {
-      const m = modalRef.current;
-      if (!m) return;
-      m.style.zoom = '1';
-      const k = Math.min(1, (window.innerWidth - 32) / 1180, (window.innerHeight - 32) / Math.max(m.offsetHeight, 760));
-      m.style.zoom = String(k);
-    };
-    const timer = window.setTimeout(fit, 30);
-    window.addEventListener('resize', fit);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener('resize', fit);
-    };
-  }, [open, mode]);
 
   if (!open) return null;
 
@@ -159,7 +141,7 @@ export function EntitlementPromoModal({
       onCancel={e => { e.preventDefault(); handleClose(); }}
     >
       <div className="om-epm-mask" onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
-        <div className="om-epm-modal" ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="om-epm-title">
+        <div className="om-epm-modal" role="dialog" aria-modal="true" aria-labelledby="om-epm-title">
           {renderSide(LEFT_TILES, 'left')}
           <div className="om-epm-main">
             <Button variant="plain" type="button" className="om-epm-close" onClick={handleClose} aria-label={t('Close')}>×</Button>

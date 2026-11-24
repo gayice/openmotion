@@ -2430,7 +2430,8 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   });
 
   app.get('/motion-api/tracking', (c) => {
-    return c.json({ enabled: cloudTracking.isEnabled(), locked: true, reason: 'cloud' });
+    const enabled = cloudTracking.isEnabled();
+    return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud' });
   });
   app.post('/motion-api/tracking', async (c) => {
     if (!cloudTracking.isEnabled()) {
@@ -2440,20 +2441,23 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     const acceptedCount = cloudTracking.acceptBrowserBatch(body);
     return c.json({ ok: true, accepted: acceptedCount > 0, acceptedCount }, 202);
   });
-  const trackingPreferencesPayload = {
-    enabled: false,
-    preference: false,
-    locked: true,
-    reason: 'environment' as const,
+  const trackingPreferencesPayload = () => {
+    const enabled = cloudTracking.isEnabled();
+    return {
+      enabled,
+      preference: enabled,
+      locked: true,
+      reason: 'environment' as const,
+    };
   };
   app.get('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
+    return c.json(trackingPreferencesPayload());
   });
   app.put('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
+    return c.json(trackingPreferencesPayload());
   });
   app.post('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
+    return c.json(trackingPreferencesPayload());
   });
   app.post('/motion-api/diagnostics', authMiddleware, (c) => {
     return c.json({ ok: true, mode: 'cloud-container', version: VERSION });
