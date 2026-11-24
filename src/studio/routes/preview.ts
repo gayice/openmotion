@@ -24,6 +24,7 @@ import {
 } from '../etag.ts';
 import { PREVIEW_BRIDGE_ASSET_RE, PREVIEW_BRIDGE_PATH, PREVIEW_BRIDGE_SCRIPT, PREVIEW_BRIDGE_VERSION } from '../engine/preview-bridge.ts';
 import { PreviewBuildBusy, PreviewDocumentCache } from '../engine/preview-document-cache.ts';
+import { previewSceneFragment } from '../engine/preview-scene-fragment.ts';
 import { createLogger } from '../../infra/logger.ts';
 import { assertTenantScopedKey } from '../../infra/storage.ts';
 import { singleByteRange } from '../../infra/byte-range.ts';
@@ -278,6 +279,11 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     const projectId = c.req.param('id')!;
     const project = await deps.workspace.getProject(auth, projectId, { allowTrashed: true });
     const capture = ['1', 'true'].includes(c.req.query('capture') ?? '');
+    const sceneFile = c.req.query('sceneFile');
+    if (sceneFile !== undefined && (compPath !== undefined || capture || !/\.html?$/i.test(sceneFile) ||
+        normalizeSafeProjectPath(sceneFile) !== sceneFile)) {
+      return c.json({ error: 'Expected a scene file from the master preview' }, 400);
+    }
     const variables = parseVariablesQuery(c.req.query('variables'));
     const assetBase = c.get('previewAssetBase');
     const origin = assetBase && new URL(assetBase).origin;
@@ -287,11 +293,11 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
       auth.workspaceId, projectId, compPath, origin, capture, variables, origin ? PREVIEW_BRIDGE_VERSION : null,
     ])).digest('hex');
     const tag = (revision: string) => previewEtag(documentSignature(revision, assetBase), {
-      gsapBaseUrl, rawVariables: variant, capture, compPath,
+      gsapBaseUrl, rawVariables: sceneFile ? JSON.stringify([variant, sceneFile]) : variant, capture, compPath,
     });
     const validator = c.req.header('if-none-match');
     const expectedTag = tag(project.revision);
-    if (validator === expectedTag && await deps.files.hasFile(auth, projectId, compPath ?? 'index.html')) {
+    if (validator === expectedTag && await deps.files.hasFile(auth, projectId, sceneFile ?? compPath ?? 'index.html')) {
       c.header('Cache-Control', 'private, no-cache');
       c.header('Vary', 'Cookie, Authorization');
       c.header('ETag', expectedTag);
@@ -328,11 +334,19 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
           ? { error: 'Entry composition index.html not found' }
           : { error: 'Sub-composition not found', path: compPath }, 404);
       }
+      const result = sceneFile ? await cache.get(variant + doc.revision + ':' + sceneFile, doc.revision, async () => {
+        const html = previewSceneFragment(doc.html, sceneFile);
+        return html === null ? null : { ...doc, html };
+      }) : doc;
+      if (!result) {
+        c.header('Cache-Control', 'no-store');
+        return c.json({ error: 'Scene is missing or cannot be isolated', path: sceneFile }, 404);
+      }
       c.header('Cache-Control', 'private, no-cache');
       c.header('Vary', 'Cookie, Authorization');
       c.header('ETag', tag(doc.revision));
-      c.header('Content-Type', 'text/html; charset=utf-8');
-      return c.body(assetBase ? doc.html.replaceAll(doc.templateBase, () => assetBase) : doc.html, 200);
+      c.header('Content-Type', sceneFile ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8');
+      return c.body(assetBase ? result.html.replaceAll(result.templateBase, () => assetBase) : result.html, 200);
     } catch (error) {
       if (error instanceof PreviewBuildBusy) {
         const retryAfterSeconds = 1;

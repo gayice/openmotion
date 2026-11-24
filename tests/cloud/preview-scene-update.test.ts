@@ -6,6 +6,7 @@ import { parseHTMLContent } from '@hyperframes/core/compiler';
 import { PREVIEW_SOURCE_IDENTITY } from '../../src/studio/engine/preview-bridge.ts';
 import { bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
 import { PREVIEW_SCENE_UPDATE } from '../../src/studio/engine/preview-scene-update.ts';
+import { previewSceneFragment } from '../../src/studio/engine/preview-scene-fragment.ts';
 import { InMemoryVirtualProject } from '../../src/studio/virtual-project-store.ts';
 
 const file = 'compositions/intro.html';
@@ -16,6 +17,20 @@ const version = `"sha256:${after}"`;
 const oldVersions = { [file]: digest('old intro'), [other]: digest('outro') };
 const parts = (intro: string) => ({ shared: 'same main', scenes: { intro, outro: 'same outro' } });
 const parked = `<section data-composition-file="${file}" data-hf-scene="intro" data-hf-parked-scene></section>`;
+
+it('keeps ordered scene scripts, styles and font declarations while omitting the shell and ambiguous instances', () => {
+  const host = `<section data-composition-file="${file}" data-hf-scene="intro"><span>Title</span><script data-hf-scene="intro">inside()</script></section>`;
+  const compile = (scenes: string) => `<html><head><meta name="hf-scene-parts" content="{}"><script data-openmotion-preview="{}" src="/bridge.js"></script>
+    <style data-hf-scene-fonts>@font-face{font-family:Heading}</style><style data-hf-scene="intro">h1{color:red}</style>
+    <script>unrelated()</script></head><body>${scenes}<script data-hf-scene="intro">after()</script></body></html>`;
+  const html = previewSceneFragment(compile(host), file)!;
+  const fragment = parseHTMLContent(html);
+  assert.equal(fragment.querySelector('[data-hf-scene-fonts]')?.textContent, '@font-face{font-family:Heading}');
+  assert.equal(fragment.querySelector('style[data-hf-scene]')?.textContent, 'h1{color:red}');
+  assert.deepEqual(Array.from(fragment.querySelectorAll('script[data-hf-scene]'), el => el.textContent), ['inside()', 'after()']);
+  assert.ok(!html.includes('unrelated()') && !html.includes('/bridge.js'));
+  assert.equal(previewSceneFragment(compile(host + host), file), null);
+});
 
 function fixture() {
   const document = parseHTMLContent(`<html><head></head><body>${parked}</body></html>`);
@@ -32,11 +47,11 @@ function fixture() {
   let duringRead = () => {};
   const refresh = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_SCENE_UPDATE + '\nrefreshPeerScene;', {
     settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: { ...oldVersions }, projectId: 'p',
-    document, location: {href: 'https://preview.example/current'}, AbortSignal,
+    document, location: {href: 'https://preview.example/current?pt=test'}, URL, AbortSignal,
     drag: null, pendingDrags: new Map(), inlineText: null,
     DOMParser: class { parseFromString(html: string) { return parseHTMLContent(html); } },
     fetch: async (url: string) => {
-      assert.equal(url, 'https://preview.example/current');
+      assert.equal(url, 'https://preview.example/current?pt=test&sceneFile=compositions%2Fintro.html');
       counts.reads++;
       duringRead();
       return new Response(templ());
