@@ -5,11 +5,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { IsolatedCanvasOverlay } from "./IsolatedCanvasOverlay";
 import { PREVIEW_BRIDGE_SOURCE, type PreviewBridgeMessage } from "../../player/lib/previewAdapter";
+import { liveTime, usePlayerStore } from "../../player/store/playerStore";
 import { announcePreviewPromoted } from "../../player/sceneSwap";
 
 const state = vi.hoisted(() => ({
   writeBlockedReason: null as string | null,
-  domEditSelection: null as null | { isolatedBounds: { x:number; y:number; width:number; height:number }; isolatedTarget?: { sourceFile:string; elementId:string } },
+  domEditSelection: null as null | { id?: string; sourceFile?: string; isolatedClipOwner?: { id: string; sourceFile: string }; isolatedBounds: { x:number; y:number; width:number; height:number }; isolatedTarget?: { sourceFile:string; elementId:string } },
   previewIframeRef: { current: null as HTMLIFrameElement | null },
   compositionRect: { left: 10, top: 10, width: 200, height: 100 },
   commitDomEditPatchBatches: vi.fn(),
@@ -231,6 +232,29 @@ it("keeps the selected element outlined across frame loads and layout changes un
   state.domEditSelection = null;
   act(() => root.render(<IsolatedCanvasOverlay />));
   expect(canvas.firstElementChild).toBeNull();
+});
+
+it.each([false, true])("only shows handles within the selected clip's interval (descendant %s)", child => {
+  const clip = { id: "card", domId: "card", sourceFile: "index.html", start: 1, duration: 2, tag: "div", track: 0 };
+  const prior = usePlayerStore.getState().elements;
+  const target = { sourceFile: clip.sourceFile, elementId: child ? "title" : clip.id };
+  state.domEditSelection = { id: target.elementId, sourceFile: target.sourceFile, isolatedTarget: target,
+    isolatedClipOwner: child ? { id: clip.id, sourceFile: clip.sourceFile } : undefined,
+    isolatedBounds: { x: 0.1, y: 0.1, width: 0.4, height: 0.4 } };
+  try {
+    act(() => { liveTime.notify(1); usePlayerStore.setState({ elements: [clip] }); root.render(<IsolatedCanvasOverlay />); });
+    expect(canvas.querySelectorAll("[data-resize-corner]")).toHaveLength(4);
+    act(() => liveTime.notify(3));
+    expect(canvas.firstElementChild).toBeNull();
+    act(() => liveTime.notify(2));
+    expect(canvas.querySelectorAll("[data-resize-corner]")).toHaveLength(4);
+    act(() => usePlayerStore.setState({ elements: [{ ...clip, start: 9 }] }));
+    expect(canvas.firstElementChild).toBeNull();
+    expect(state.domEditSelection?.id).toBe(target.elementId);
+    expect(messages).toHaveLength(0);
+  } finally {
+    act(() => { liveTime.notify(0); usePlayerStore.setState({ elements: prior }); });
+  }
 });
 
 it("resizes the selected source target after a replacement frame has forgotten its last hit", () => {

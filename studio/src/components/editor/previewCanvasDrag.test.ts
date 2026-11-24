@@ -20,7 +20,7 @@ function createScene(declarative = false, position = false) {
   const dispatch = new Function("document", "getComputedStyle", "HTMLElement", "sourceVersions", "describe",
     "innerWidth", "innerHeight", "picked", "timingDocumentId", "compositionPath", "settings", "notifyInspectorSourceReady",
     PREVIEW_SOURCE_IDENTITY + PREVIEW_CANVAS_DRAG + "\nreturn canvasDrag;")(
-    document, (el: HTMLElement) => ({ position: el.style.position || "static", left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: "none", display: "block" }),
+    document, (el: HTMLElement) => ({ position: el.style.position || "static", visibility: el.style.visibility, left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: "none", display: "block" }),
     HTMLElement, { "one.html": originalHash, "two.html": originalHash },
     (el: HTMLElement) => ({ sourceFile: el.id + ".html", elementId: el.id, geometry: el.getBoundingClientRect(),
       viewport: { width: 100, height: 100 } }), 100, 100, elements[0], declarative ? "frame" : undefined, "one.html", {liveEdits: {position}}, vi.fn(),
@@ -129,4 +129,18 @@ it("resizes the selected corner and rolls back a rejected gesture", () => {
   expect(one.style.width).toBe("");
   expect(gesture("start", "n", {corner:"nw"})).toBeTruthy();
   expect(gesture("finish","n",{dx:-.1,dy:-.05})).toMatchObject({corner:"nw",left:-10,top:-5,width:30,height:15});
+});
+
+it("cannot resize an invisible target from a stale handle, including a target hidden mid-gesture", () => {
+  const { one, gesture } = createScene(true);
+  const corner = { corner: "se" };
+  one.style.visibility = "hidden";
+  expect(gesture("start", "hidden", corner)).toBeNull();
+  one.style.visibility = "visible";
+  expect(gesture("start", "moving", corner)).toBeTruthy();
+  gesture("move", "moving");
+  expect(one.style.width).not.toBe("");
+  one.style.visibility = "hidden";
+  expect(gesture("finish", "moving")).toBeNull();
+  expect(one.style.width).toBe("");
 });

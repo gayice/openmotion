@@ -12,6 +12,7 @@ import { projectPreviewAdapter } from "../../player/lib/projectPreviewAdapter";
 import { onPreviewPromoted } from "../../player/sceneSwap";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { canvasBoxOperations, type MeasuredCanvasPosition } from "../../../../packages/edit-core/canvas-box";
+import { useCanvasClipVisibility } from "./useCanvasClipVisibility";
 import { saveCanvasDrag } from "./saveCanvasDrag";
 
 interface Drag {
@@ -68,6 +69,7 @@ export function IsolatedCanvasOverlay() {
   const lastPick = useRef<Drag | null>(null);
   const [menu, setMenu] = useState<CanvasMenuPick | null>(null);
   const { domEditSelection } = useDomEditSelectionContext();
+  const inFrame = useCanvasClipVisibility(domEditSelection);
   const [draft, setDraft] = useState<{ frame: HTMLIFrameElement; bounds: LayerBounds } | null>(null);
   const box = draft && draft.frame === previewIframeRef.current ? draft.bounds : domEditSelection?.isolatedBounds;
   const { state: { compositionRect } } = usePreviewOverlayContext();
@@ -265,7 +267,7 @@ export function IsolatedCanvasOverlay() {
     onPointerUp={event => update(event, "finish")} onPointerCancel={event => update(event, "cancel")}
     onLostPointerCapture={event => update(event, "cancel")}>
     {menu && <IsolatedCanvasContextMenu pick={menu} close={() => setMenu(null)} />}
-    {box && compositionRect.width > 0 && compositionRect.height > 0 && <div className="absolute pointer-events-none border border-studio-accent"
+    {inFrame && box && compositionRect.width > 0 && compositionRect.height > 0 && <div className="absolute pointer-events-none border border-studio-accent"
       style={{ left: compositionRect.left + box.x * compositionRect.width,
         top: compositionRect.top + box.y * compositionRect.height,
         width: box.width * compositionRect.width, height: box.height * compositionRect.height }}>

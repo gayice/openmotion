@@ -70,6 +70,12 @@ export const PREVIEW_CANVAS_DRAG = `
     return { a, b, c, d, determinant };
   }
 
+  function canvasTargetVisible(element, style) {
+    if (!element.isConnected || style.visibility === 'hidden' || style.visibility === 'collapse') return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
   function startDrag(message) {
     if (drag) return null;
     const hit = document.elementFromPoint(message.x * innerWidth, message.y * innerHeight);
@@ -81,6 +87,7 @@ export const PREVIEW_CANVAS_DRAG = `
     const selection = describe(element);
 
     const style = getComputedStyle(element);
+    if (!canvasTargetVisible(element, style)) return null;
     const makeRelative = style.position === 'static';
     if (!canvasBase(selection.sourceFile, {corner, makeRelative})) return { waitingForSource: true };
     const properties = makeRelative ? ['left', 'top', 'position'] : ['left', 'top'];
@@ -130,6 +137,11 @@ export const PREVIEW_CANVAS_DRAG = `
     }
     if (!drag || message.gestureId !== drag.id) return null;
     if (message.phase === 'cancel') {
+      if (drag.applied) restoreStyles(drag.element, drag.original, drag.applied);
+      drag = null;
+      return null;
+    }
+    if (message.phase === 'finish' && !canvasTargetVisible(drag.element, getComputedStyle(drag.element))) {
       if (drag.applied) restoreStyles(drag.element, drag.original, drag.applied);
       drag = null;
       return null;
