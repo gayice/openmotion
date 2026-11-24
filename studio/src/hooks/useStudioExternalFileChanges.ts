@@ -1,5 +1,5 @@
 import { useCallback, useMemo, type MutableRefObject } from "react";
-import { changedFilePaths, readFileChangeAffectsPreview, readFileTreeChanged } from "../components/editor/manualEditsParsing";
+import { changedFilePaths, changedFileVersion, readFileChangeAffectsPreview, readFileTreeChanged } from "../components/editor/manualEditsParsing";
 import { isUnrelatedPreviewHtmlChange } from "../player/lib/previewHtmlSources";
 import { syncPeerComposition } from "./syncPeerComposition";
 import { createRemoteFileReader } from "./remoteFileReads";
@@ -93,8 +93,10 @@ export function useStudioExternalFileChanges({
     acceptChange(unrelated ? activePath ?? undefined : undefined);
     if (!projectId) return;
     const read = filesForChange(projectId, payload);
+    const changedPath = paths?.length === 1 ? paths[0] : undefined;
+    const version = changedPath && changedFileVersion(payload, changedPath);
     const preview = unrelated ? "unaffected" as const : affectsPreview
-      ? syncPeerComposition(projectId, activePath, paths, read, previewIframeRef, previous)
+      ? syncPeerComposition(projectId, activePath, paths, read, previewIframeRef, previous, version)
       : undefined;
     for (const path of paths ?? ["."]) {
       notifyExternalFileReload(path, read);

@@ -10,14 +10,26 @@ import { MAX_PEER_PREVIEW_SOURCE_LENGTH, PREVIEW_ATTRIBUTES, canPatchPreviewAttr
 type FileSnapshot = { content: string; version: string };
 
 // A WindowProxy survives navigation. Bind a request to the document that acknowledged the handshake.
-const documents = new WeakMap<HTMLIFrameElement, { token: string; id: string; canRebind: boolean; liveEdits: PreviewLiveEdits; timingFile?: { path: string; version: string } }>();
-export function rememberPeerTimingDocument(frame: HTMLIFrameElement, token: string | null, timingId: unknown, styleId?: unknown, liveEdits: PreviewLiveEdits = {}): void {
+const documents = new WeakMap<HTMLIFrameElement, { token: string; id: string; canRebind: boolean; canRefreshParked: boolean; liveEdits: PreviewLiveEdits; timingFile?: { path: string; version: string } }>();
+export function rememberPeerTimingDocument(frame: HTMLIFrameElement, token: string | null, timingId: unknown, styleId?: unknown, liveEdits: PreviewLiveEdits = {}, canRefreshParked = false): void {
   const id = timingId ?? styleId;
   if (token && typeof id === "string" && id.length > 0 && id.length <= 64) {
     const known = documents.get(frame);
-    if (known?.id !== id || known.token !== token) documents.set(frame, { token, id, canRebind: id === timingId, liveEdits });
+    if (known?.id !== id || known.token !== token) documents.set(frame, { token, id, canRebind: id === timingId, canRefreshParked, liveEdits });
   }
   else documents.delete(frame);
+}
+
+export async function tryRefreshParkedPeerScene(frame: HTMLIFrameElement, path: string, version: string, isCurrent: () => boolean) {
+  const doc = documents.get(frame);
+  if (!doc?.canRefreshParked || !isCurrent()) return false;
+  const adapter = createPreviewAdapter({ iframe: frame });
+  if (adapter.token !== doc.token) return false;
+  const timeout = 5000;
+  const applied = await adapter.request<boolean>("refresh-parked-scene", {
+    path, fileVersion: version, documentId: doc.id, expiresAt: Date.now() + timeout,
+  }, timeout).catch(() => false);
+  return applied === true && documents.get(frame) === doc && isCurrent();
 }
 
 /** A scripted or older document can start rebuilding in parallel with the source read. */

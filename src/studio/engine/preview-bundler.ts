@@ -565,9 +565,10 @@ async function applyStudioPreviewAugmentations(
   html: string,
   project: VirtualProjectReader,
   activeCompositionPath: string,
-  options: { capture: boolean; gsapBaseUrl: string; bridgeOrigin?: string; studioOrigin?: string; canRebindTiming?: boolean; htmlSources?: string[]; variables?: Record<string, unknown> | null },
+  options: { capture: boolean; gsapBaseUrl: string; sceneManifest?: boolean; bridgeOrigin?: string; studioOrigin?: string; canRebindTiming?: boolean; htmlSources?: string[]; variables?: Record<string, unknown> | null },
 ): Promise<string> {
   let out = repairCodeExtrudeMaterial(html);
+  let bridgeScript: string | undefined;
 
   // 1. Studio preview marker + early error capture + lazy images
   out = options.capture
@@ -594,7 +595,7 @@ async function applyStudioPreviewAugmentations(
       ? `<link rel="preload" as="script" href="${new URL('/api/vendor/snapdom.js', options.bridgeOrigin).href}">`
       : '';
     out = injectTagsAtHeadStart(out, `${tags.preload}${snapdomPreload}`);
-    out = insertBeforeCloseTag(out, 'body', tags.script) ?? out + tags.script;
+    bridgeScript = tags.script;
   }
 
   // 3. GSAP base URL meta + project signature meta + CDN fallback
@@ -650,7 +651,10 @@ async function applyStudioPreviewAugmentations(
     out = injectPreviewVariables(out, options.variables);
   }
 
-  return out;
+  // The preload pins the bridge implementation. Its per-file version receipts
+  // change after a scene edit without changing the shared film.
+  if (options.sceneManifest) out = addScenePartsManifest(out, [`meta[name="${PROJECT_SIGNATURE_META}"]`]);
+  return bridgeScript ? insertBeforeCloseTag(out, 'body', bridgeScript) ?? out + bridgeScript : out;
 }
 
 /**
@@ -904,9 +908,9 @@ export async function bundlePreviewInMemory(
     bridgeOrigin: options.bridgeOrigin,
     studioOrigin: options.studioOrigin,
     canRebindTiming,
+    sceneManifest: true,
     htmlSources: htmlSources?.paths(),
   });
-  html = addScenePartsManifest(html, [`meta[name="${PROJECT_SIGNATURE_META}"]`]);
   return html;
 }
 

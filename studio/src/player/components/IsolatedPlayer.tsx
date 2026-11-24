@@ -125,7 +125,8 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
             rememberPreviewHtmlSources(iframe!, event.data.projectId, event.data.htmlSources);
             receivedHtmlSources = true;
           }
-          rememberPeerTimingDocument(iframe!, bridge.token, event.data.timingDocumentId, event.data.styleDocumentId, event.data.liveEdits);
+          rememberPeerTimingDocument(iframe!, bridge.token, event.data.timingDocumentId, event.data.styleDocumentId, event.data.liveEdits,
+            Array.isArray(event.data.capabilities) && event.data.capabilities.includes("refresh-parked-scene"));
           return;
         }
         if (event.data.type === "asset-readiness") {

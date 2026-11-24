@@ -301,10 +301,10 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     try {
       const doc = await cache.get(variant + project.revision, project.revision, async () => {
         const virtual = await deps.files.loadVirtualProject(auth, projectId);
-        // The content-derived base has the same path depth as the live base. Relative
-        // author base tags and root import maps resolve normally without a user grant.
+        // Use a stable, grant-free base for this project and build variant. Scene
+        // fingerprints must not change when a different scene advances the revision.
         const templateBase = origin
-          ? `${origin}${localBase}~assets/${variant}-${virtual.revision}/`
+          ? `${origin}${localBase}~assets/${variant}/`
           : localBase;
         const options = {
           runtimeUrl: '/api/runtime.js', baseHref: templateBase, gsapBaseUrl, capture, variables,

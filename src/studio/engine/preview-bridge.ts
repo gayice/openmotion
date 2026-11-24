@@ -8,6 +8,7 @@ import { PREVIEW_LAYERS } from './preview-layers.ts';
 import { PREVIEW_INLINE_TEXT } from './preview-inline-text.ts';
 import { PREVIEW_CANVAS_DRAG } from './preview-canvas-drag.ts';
 import { PREVIEW_TIMELINE_CONTROLS } from './preview-timeline-controls.ts';
+import { PREVIEW_PARKED_SCENE } from './preview-parked-scene.ts';
 import { PREVIEW_PEER_TIMING } from './preview-peer-timing.ts';
 import type { PreviewLiveEdits } from '../../../shared/preview-timing.ts';
 import { PREVIEW_THUMBNAIL_CAPTURE } from './preview-thumbnail-capture.ts';
@@ -100,6 +101,7 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   ${PREVIEW_INLINE_TEXT}
   ${PREVIEW_TIMELINE_CONTROLS}
   ${PREVIEW_PEER_TIMING}
+  ${PREVIEW_PARKED_SCENE}
   ${PREVIEW_INSPECTOR}
   ${PREVIEW_INSPECTOR_STYLES}
   ${PREVIEW_LAYERS}
@@ -169,7 +171,7 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     else parentWindow.postMessage(message,targetOrigin);
   }
   function ready(){
-    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:settings.liveEdits,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
+    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:settings.liveEdits,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
     var state=timeline(true);
     if(state.duration>0){
       durationBootAnnounced=true;
@@ -197,6 +199,11 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       if(message.type==='peer-timing' || message.type==='peer-presentation'){
         if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
         respond(requestId,applyPeerTiming(message)); return;
+      }
+      if(message.type==='refresh-parked-scene'){
+        if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
+        refreshParkedScene(message).then(value => respond(requestId,value), () => respond(requestId,false));
+        return;
       }
       if(message.type==='timeline-controls'){
         if(settings.studioOrigin && settings.studioOrigin === event.origin) previewTimelineControls(message);

@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import { shareCompositionPosterRead, type KnownCompositionSource, MAX_POSTER_SOURCE_LENGTH } from "../player/lib/compositionPosterSource";
 import { beginPeerTimelineUpdate } from "../player/lib/peerTimeline";
-import { hasPeerLiveEdit, hasPeerTimingDocument, hasScriptedStylePreview, tryApplyPeerChanges } from "../player/peerTimingPreview";
+import { hasPeerLiveEdit, hasPeerTimingDocument, hasScriptedStylePreview, tryApplyPeerChanges, tryRefreshParkedPeerScene } from "../player/peerTimingPreview";
 import { isPreviewChanging } from "../player/previewReloading";
 import { announcePreviewScenesSwapped, notePeerPreviewChange, previewSourceRevision } from "../player/sceneSwap";
 import { usePlayerStore } from "../player/store/playerStore";
@@ -14,7 +14,26 @@ import { confirmedSource } from "../utils/confirmedTextSources";
 export function syncPeerComposition(
   projectId: string, path: string | null, paths: readonly string[] | null,
   read: RemoteFileRead, frameRef: RefObject<HTMLIFrameElement | null>,
-  previous: KnownCompositionSource | null,
+  previous: KnownCompositionSource | null, changedVersion?: string,
+): Promise<boolean> | undefined {
+  const frame = frameRef.current;
+  const changed = paths?.length === 1 ? paths[0] : undefined;
+  const mounted = syncMountedComposition(projectId, path, paths, read, frameRef, previous);
+  if (!frame || path !== "index.html" || !changed || changed === path || !changedVersion || !/\.html?$/i.test(changed)) return mounted;
+  const revision = previewSourceRevision();
+  const current = () => frameRef.current === frame && revision === previewSourceRevision() &&
+    !isPreviewChanging() && !isStudioEditSaving() && usePlayerStore.getState().timelineProjectId === projectId;
+  return Promise.resolve(mounted).then(async handled => {
+    if (handled) return true;
+    if (!await tryRefreshParkedPeerScene(frame, changed, changedVersion, current)) return false;
+    announcePreviewScenesSwapped(frame);
+    return true;
+  });
+}
+
+function syncMountedComposition(
+  projectId: string, path: string | null, paths: readonly string[] | null,
+  read: RemoteFileRead, frameRef: RefObject<HTMLIFrameElement | null>, previous: KnownCompositionSource | null,
 ): Promise<boolean> | undefined {
   const frame = frameRef.current;
   const apply = path && (!paths || paths.includes(path)) && beginPeerTimelineUpdate(projectId, path, frame);
