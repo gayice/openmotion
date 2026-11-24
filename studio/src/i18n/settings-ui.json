@@ -397,6 +397,11 @@
     "Revoking…": "正在吊销…",
     "Token revoked": "令牌已吊销",
     "Could not revoke token": "无法吊销令牌",
+    "Connected applications": "已授权应用",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "已获授权连接你 OpenDesign 工作台的外部 MCP Agent（如 Codex 或 Claude Code）。吊销后，该应用的全部访问令牌与刷新令牌将立即失效。",
+    "Refresh connections": "刷新授权列表",
+    "No connected applications yet.": "暂无已授权应用。",
+    "Authorized": "授权时间",
     "Unified model gateway": "统一模型网关",
     "All image, video, speech and music generation routes through the OpenDesign platform gateway. No third-party API keys are required.": "所有图片、视频、语音与音乐生成均通过 OpenDesign 平台网关统一路由，无需配置第三方 API 密钥。",
     "Unified platform media generation · No BYOK API keys required": "统一平台媒体生成 · 无需配置第三方 BYOK 密钥",
@@ -655,7 +660,12 @@
     "OpenAI compatible": "OpenAI 互換",
     "This protocol currently syncs models and saves text defaults only; image, video and audio generation are not executed through it.": "このプロトコルは現在、モデル同期とテキスト既定値の保存のみに対応しており、画像・動画・音声の生成は実行されません。",
     "Active workspace": "使用中",
-    "Creating token…": "作成中…"
+    "Creating token…": "作成中…",
+    "Connected applications": "連携済みアプリ",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "OpenDesign Workbench への接続が許可された外部 MCP Agent（Codex や Claude Code など）です。取り消すと、そのアプリのすべてのアクセストークンとリフレッシュトークンが直ちに無効になります。",
+    "Refresh connections": "接続を更新",
+    "No connected applications yet.": "連携済みアプリはまだありません。",
+    "Authorized": "認可日時"
   },
   "ko": {
     "What's new": "새로운 소식",
@@ -761,7 +771,12 @@
     "OpenAI compatible": "OpenAI 호환",
     "This protocol currently syncs models and saves text defaults only; image, video and audio generation are not executed through it.": "이 프로토콜은 현재 모델 동기화와 텍스트 기본값 저장만 지원하며 이미지·비디오·오디오 생성은 실행되지 않습니다.",
     "Active workspace": "활성",
-    "Creating token…": "생성 중…"
+    "Creating token…": "생성 중…",
+    "Connected applications": "연결된 애플리케이션",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "OpenDesign Workbench에 연결하도록 승인된 외부 MCP Agent(예: Codex 또는 Claude Code)입니다. 앱의 권한을 취소하면 모든 액세스 및 리프레시 토큰이 즉시 무효화됩니다.",
+    "Refresh connections": "연결 새로고침",
+    "No connected applications yet.": "아직 연결된 애플리케이션이 없습니다.",
+    "Authorized": "승인됨"
   },
   "de": {
     "What's new": "Neuigkeiten",
@@ -867,7 +882,12 @@
     "OpenAI compatible": "OpenAI-kompatibel",
     "This protocol currently syncs models and saves text defaults only; image, video and audio generation are not executed through it.": "Dieses Protokoll synchronisiert derzeit nur Modelle und speichert Text-Standardwerte; Bild-, Video- und Audiogenerierung wird darüber nicht ausgeführt.",
     "Active workspace": "Aktiv",
-    "Creating token…": "Wird erstellt…"
+    "Creating token…": "Wird erstellt…",
+    "Connected applications": "Verbundene Anwendungen",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "Externe MCP-Agents (wie Codex oder Claude Code), die für den Zugriff auf deine OpenDesign Workbench autorisiert sind. Durch den Widerruf werden alle Zugriffs- und Aktualisierungstoken sofort ungültig.",
+    "Refresh connections": "Verbindungen aktualisieren",
+    "No connected applications yet.": "Noch keine verbundenen Anwendungen.",
+    "Authorized": "Autorisiert"
   },
   "fr": {
     "What's new": "Nouveautés",
@@ -973,7 +993,12 @@
     "OpenAI compatible": "Compatible OpenAI",
     "This protocol currently syncs models and saves text defaults only; image, video and audio generation are not executed through it.": "Ce protocole synchronise actuellement uniquement les modèles et enregistre les valeurs texte par défaut ; la génération d’images, de vidéos et d’audio n’est pas exécutée via ce protocole.",
     "Active workspace": "Actif",
-    "Creating token…": "Création…"
+    "Creating token…": "Création…",
+    "Connected applications": "Applications connectées",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "Agents MCP externes (comme Codex ou Claude Code) autorisés à se connecter à votre OpenDesign Workbench. La révocation d’une application invalide immédiatement tous ses jetons d’accès et de rafraîchissement.",
+    "Refresh connections": "Actualiser les connexions",
+    "No connected applications yet.": "Aucune application connectée pour le moment.",
+    "Authorized": "Autorisé"
   },
   "ru": {
     "What's new": "Что нового",
@@ -1079,7 +1104,12 @@
     "OpenAI compatible": "Совместимый с OpenAI",
     "This protocol currently syncs models and saves text defaults only; image, video and audio generation are not executed through it.": "Этот протокол пока поддерживает только синхронизацию каталога и сохранение текстовых настроек по умолчанию; генерация изображений, видео и аудио через него не выполняется.",
     "Active workspace": "Активен",
-    "Creating token…": "Создание…"
+    "Creating token…": "Создание…",
+    "Connected applications": "Подключённые приложения",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "Внешние MCP-агенты (например, Codex или Claude Code), которым разрешено подключение к вашему OpenDesign Workbench. Отзыв доступа немедленно аннулирует все токены доступа и обновления приложения.",
+    "Refresh connections": "Обновить подключения",
+    "No connected applications yet.": "Подключённых приложений пока нет.",
+    "Authorized": "Авторизовано"
   },
   "es": {
     "What's new": "Novedades",
@@ -1185,7 +1215,12 @@
     "OpenAI compatible": "Compatible con OpenAI",
     "This protocol currently syncs models and saves text defaults only; image, video and audio generation are not executed through it.": "Este protocolo actualmente solo sincroniza modelos y guarda valores predeterminados de texto; no ejecuta generación de imágenes, video ni audio.",
     "Active workspace": "Activo",
-    "Creating token…": "Creando…"
+    "Creating token…": "Creando…",
+    "Connected applications": "Aplicaciones conectadas",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "Agentes MCP externos (como Codex o Claude Code) autorizados para conectarse a tu OpenDesign Workbench. Revocar una aplicación invalida de inmediato todos sus tokens de acceso y actualización.",
+    "Refresh connections": "Actualizar conexiones",
+    "No connected applications yet.": "Aún no hay aplicaciones conectadas.",
+    "Authorized": "Autorizado"
   },
   "pt-BR": {
     "What's new": "Novidades",
@@ -1291,7 +1326,12 @@
     "OpenAI compatible": "Compatível com OpenAI",
     "This protocol currently syncs models and saves text defaults only; image, video and audio generation are not executed through it.": "Este protocolo atualmente apenas sincroniza modelos e salva padrões de texto; geração de imagem, vídeo e áudio não é executada por ele.",
     "Active workspace": "Ativo",
-    "Creating token…": "Criando…"
+    "Creating token…": "Criando…",
+    "Connected applications": "Aplicativos conectados",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "Agentes MCP externos (como Codex ou Claude Code) autorizados a se conectar ao seu OpenDesign Workbench. Revogar um aplicativo invalida imediatamente todos os seus tokens de acesso e atualização.",
+    "Refresh connections": "Atualizar conexões",
+    "No connected applications yet.": "Nenhum aplicativo conectado ainda.",
+    "Authorized": "Autorizado"
   },
   "it": {
     "What's new": "Novità",
@@ -1397,7 +1437,12 @@
     "OpenAI compatible": "Compatibile OpenAI",
     "This protocol currently syncs models and saves text defaults only; image, video and audio generation are not executed through it.": "Questo protocollo attualmente sincronizza solo i modelli e salva i valori predefiniti di testo; la generazione di immagini, video e audio non viene eseguita tramite esso.",
     "Active workspace": "Attivo",
-    "Creating token…": "Creazione…"
+    "Creating token…": "Creazione…",
+    "Connected applications": "Applicazioni connesse",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "Agenti MCP esterni (come Codex o Claude Code) autorizzati a connettersi al tuo OpenDesign Workbench. La revoca di un’app invalida immediatamente tutti i suoi token di accesso e aggiornamento.",
+    "Refresh connections": "Aggiorna connessioni",
+    "No connected applications yet.": "Nessuna applicazione connessa al momento.",
+    "Authorized": "Autorizzato"
   },
   "tr": {
     "What's new": "Yenilikler",
@@ -1503,6 +1548,11 @@
     "OpenAI compatible": "OpenAI uyumlu",
     "This protocol currently syncs models and saves text defaults only; image, video and audio generation are not executed through it.": "Bu protokol şu anda yalnızca modelleri eşitler ve metin varsayılanlarını kaydeder; görsel, video ve ses üretimi bu protokol üzerinden çalıştırılmaz.",
     "Active workspace": "Etkin",
-    "Creating token…": "Oluşturuluyor…"
+    "Creating token…": "Oluşturuluyor…",
+    "Connected applications": "Bağlı uygulamalar",
+    "External MCP agents (such as Codex or Claude Code) authorized to connect to your OpenDesign Workbench. Revoking an app immediately invalidates all of its access and refresh tokens.": "OpenDesign Workbench’inize bağlanmaya yetkili harici MCP Agent’ları (Codex veya Claude Code gibi). Bir uygulamayı iptal etmek tüm erişim ve yenileme belirteçlerini anında geçersiz kılar.",
+    "Refresh connections": "Bağlantıları yenile",
+    "No connected applications yet.": "Henüz bağlı uygulama yok.",
+    "Authorized": "Yetkilendirildi"
   }
 }

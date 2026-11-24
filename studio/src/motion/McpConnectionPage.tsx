@@ -310,7 +310,9 @@ export function McpConnectionPage({
       toast.showToast(t('Cursor install prompt triggered. If Cursor did not open, click Manual setup to copy the JSON.'), 'info', 'feedback');
       return;
     }
-    const copyMessage = t('Copied. Paste into {agent} to finish setup.', { agent: client.id === 'mcp' ? t('your Agent') : agent });
+    const copyMessage = client.id === 'mcp'
+      ? t('Copied. Paste into your Agent to finish setup.')
+      : t('Copied. Paste into {agent} to finish setup.', { agent });
     const copied = await copy(prompt, { kind: 'connection_instruction' }, copyMessage);
     setSetupResult({ clientId: client.id, copied, fallbackPrompt: copied ? undefined : prompt });
   }

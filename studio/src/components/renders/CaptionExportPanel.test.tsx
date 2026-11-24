@@ -33,7 +33,7 @@ it('waits for saves, downloads once through the shared operation, and shows floa
 });
 it('exports the chosen scene and VTT without changing the editor composition', async () => {
   await act(async () => button('Export scene').click());
-  await act(async () => [...document.querySelectorAll<HTMLElement>('[role=option]')].find(el => el.textContent?.includes('scenes/outro'))!.click());
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role=option]')].find(el => el.textContent?.includes('Outro'))!.click());
   await act(async () => document.querySelector<HTMLElement>('[role=radio][aria-label=VTT]')!.click());
   await act(async () => button('Download VTT').click());
   expect(state.request).toHaveBeenLastCalledWith({ command: 'caption_export', projectId: 'p', compositionPath: 'scenes/outro.html', format: 'vtt' });

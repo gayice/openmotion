@@ -137,6 +137,7 @@
         // 3. On collision (approx at 0.6 + 4*0.05 = 0.8s), white ring expands
         const collisionTime = convergeDuration + (pieceArray.length - 1) * stagger;
 
+        tl.set(ring, { scale: 0.2, opacity: 0 }, 0);
         tl.fromTo(
           ring,
           { scale: 0.2, opacity: 1 },
@@ -145,6 +146,7 @@
             opacity: 0,
             duration: 0.4,
             ease: "power2.out",
+            immediateRender: false,
           },
           collisionTime,
         );

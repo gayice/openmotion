@@ -187,6 +187,8 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
           </div>
           <p>{t('Pick a skill, fill in the brief and copy the instruction. Your Agent builds an editable project in OpenMotion.')}</p>
         </section>}
+        {studio && chrome && !query.trim() && <StudioTemplateShelf key={studio.id + locale} studio={studio.id} root={main} active={previewsEnabled && !selected} />}
+        {studio && <header className="om-studio-skills-heading"><h2 className="om-title om-studio-techniques-title">{t(studio.id === '3d' ? '3D Creative Skills' : 'Creative Skills')}</h2>{comingSoon && <p className="om-muted">{t('While the Studio is coming soon, choose a Skill below and copy its brief to your Agent to start creating.')}</p>}</header>}
         <div className="om-gallery-sticky-header">
           <div className="om-gallery-toolbar om-skills-toolbar">
             {!studio && <CategoryStrip label="Skill category" selection={category} neutral>
@@ -196,8 +198,6 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
             <label className="om-field om-search-field"><MotionIcon name="search" size={18} /><input ref={search} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('Search skills...')} aria-label={t('Search skills')} /><kbd aria-hidden="true">⌘ K</kbd></label>
           </div>
         </div>
-        {studio && chrome && !query.trim() && <StudioTemplateShelf key={studio.id + locale} studio={studio.id} root={main} active={previewsEnabled && !selected} />}
-        {studio && <header className="om-studio-skills-heading"><h2 className="om-title om-studio-techniques-title">{t(studio.id === '3d' ? '3D Creative Skills' : 'Creative Skills')}</h2>{comingSoon && <p className="om-muted">{t('While the Studio is coming soon, choose a Skill below and copy its brief to your Agent to start creating.')}</p>}</header>}
         <div className="om-gallery-masonry om-skills-grid">
           {cards.map((skill, index) => <SkillCard key={skill.id} skill={skill} name={displayName(skill)} useWhen={t(skill.useWhen)} selected={skill.id === skillId} onSelect={() => open(skill, index + (featureInHero ? 2 : 1))} />)}
         </div>

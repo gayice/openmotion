@@ -689,7 +689,7 @@ export function TemplateLibraryDialog(props: Props) {
   const closeLabel = t(props.creators ? 'Close' : 'Close template library');
   const searchActions = <div className="om-control-row om-gallery-header-actions">
     {searchField}
-    <Tooltip label={closeLabel}><IconButton variant="ghost" ref={libraryClose} className="om-button om-icon-button" disabled={props.busy} onClick={props.onClose} aria-label={closeLabel} icon={<MotionIcon name="close" size={16} />} /></Tooltip>
+    <Tooltip label={closeLabel} side="left"><IconButton variant="ghost" ref={libraryClose} className="om-button om-icon-button" disabled={props.busy} onClick={props.onClose} aria-label={closeLabel} icon={<MotionIcon name="close" size={16} />} /></Tooltip>
   </div>;
   const gallery = !detailOnly && <>
     {!blackFriday && !props.creators && <div className={styles.stickyHeader}>
