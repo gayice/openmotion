@@ -106,7 +106,11 @@ export function withOpenDesignModels(models: Model[], providers: ProviderState[]
 
 /** Menus list a fixed set: the models an OpenDesign API key serves, in that list's order, then Codex Image. */
 const menuOrder = [...openDesignModels.map(model => model.modelId), 'image-generation'];
-export const menuRank = (model: Model) => menuOrder.indexOf(model.provider === 'codex' ? model.modelId : isOpenDesignProvider(model.provider) ? model.modelId : '');
+export const menuRank = (model: Model) => {
+  const rank = menuOrder.indexOf(model.provider === 'codex' ? model.modelId : isOpenDesignProvider(model.provider) ? model.modelId : '');
+  // Operator-configured backends (MODEL_GATEWAY_MODE=volcengine) mark every served model; they follow the built-in set.
+  return rank >= 0 || !model.menu ? rank : menuOrder.length;
+};
 export function menuFamilies(models: Model[], providers: ProviderState[]) {
   return modelFamilies(models.filter(model => menuRank(model) >= 0), providers)
     .sort((a, b) => Math.min(...a.variants.map(menuRank)) - Math.min(...b.variants.map(menuRank)));

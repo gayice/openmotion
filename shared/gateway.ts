@@ -19,6 +19,8 @@ export type Model = {
   nativeOptions?: Record<string, unknown>;
   /** Maintained, provider-native controls, shared by Studio and MCP discovery. */
   generationOptions?: GenerationOptions;
+  /** Operator-configured model (e.g. a self-hosted backend's model list) that Studio menus list after the built-in set. */
+  menu?: boolean;
 };
 export type Agent = { id: string; label: string; installed: boolean; authenticated: boolean;
   imageGeneration: boolean; available: boolean; reason: string };

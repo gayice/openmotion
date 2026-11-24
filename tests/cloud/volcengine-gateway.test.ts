@@ -7,6 +7,7 @@ import {
   VolcengineModelGateway,
   parseArkModelList,
   parseSseFrames,
+  arkModelLabel,
 } from '../../src/services/volcengine-adapter.ts';
 import { modelDefaults } from '../../shared/generation-options.ts';
 
@@ -95,6 +96,15 @@ describe('Volcengine Ark gateway configuration', () => {
     const v20 = models.find((m) => m.modelId === 'doubao-seedance-2-0-260128')!;
     assert.equal(v20.generationOptions?.fields.find((f) => f.key === 'duration')?.max, 15);
     assert.equal(v20.generationOptions?.fields.find((f) => f.key === 'generate_audio')?.default, false);
+  });
+
+  it('labels Ark models readably and marks them for Studio menus', async () => {
+    assert.equal(arkModelLabel('doubao-seedance-2-0-mini-260615'), 'Seedance 2.0 Mini');
+    assert.equal(arkModelLabel('doubao-seedance-2-5-260628'), 'Seedance 2.5');
+    assert.equal(arkModelLabel('ep-20261124-abc'), 'ep-20261124-abc');
+    const models = await gateway(fakeArk([]).fetcher).listMediaModels(ctx);
+    assert.ok(models.every((m) => m.menu === true));
+    assert.deepEqual(models.filter((m) => m.modality === 'video').map((m) => m.label), ['Seedance 2.5', 'Seedance 2.0', 'Seedance 2.0 Mini']);
   });
 
   it('reports its own identity in gateway status instead of a verified OpenDesign platform', async () => {

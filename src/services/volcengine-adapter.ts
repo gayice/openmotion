@@ -75,6 +75,15 @@ export function parseArkModelList(raw: string | undefined): string[] {
   });
 }
 
+/** Readable menu label from an Ark model ID: `doubao-seedance-2-0-mini-260615` → `Seedance 2.0 Mini`. */
+export function arkModelLabel(modelId: string): string {
+  const match = /^doubao-(seedance|seedream)-(\d+)-(\d+)((?:-[a-z]+)*)-\d{6}$/.exec(modelId);
+  if (!match) return modelId;
+  const [, family, major, minor, suffix] = match;
+  const words = suffix.split('-').filter(Boolean).map((word) => word[0].toUpperCase() + word.slice(1));
+  return [family[0].toUpperCase() + family.slice(1) + ' ' + major + '.' + minor, ...words].join(' ');
+}
+
 function videoModel(modelId: string): Model {
   // Seedance 2.5 accepts 4–30 s, 2.0 models 4–15 s (Ark create-task docs, checked 2026-11-24).
   const maxDuration = modelId.includes('seedance-2-5') ? 30 : 15;
@@ -82,7 +91,8 @@ function videoModel(modelId: string): Model {
     id: `opendesign:${modelId}`,
     provider: 'opendesign',
     modelId,
-    label: `Volcengine ${modelId}`,
+    label: arkModelLabel(modelId),
+    menu: true,
     modality: 'video',
     mode: 'text-to-video',
     source: 'builtin',
@@ -107,7 +117,8 @@ function imageModel(modelId: string): Model {
     id: `opendesign:${modelId}`,
     provider: 'opendesign',
     modelId,
-    label: `Volcengine ${modelId}`,
+    label: arkModelLabel(modelId),
+    menu: true,
     modality: 'image',
     mode: 'text-to-image',
     source: 'builtin',
@@ -126,7 +137,8 @@ function speechModel(): Model {
     id: `opendesign:${VOLC_TTS_MODEL}`,
     provider: 'opendesign',
     modelId: VOLC_TTS_MODEL,
-    label: 'Volcengine Doubao Speech 2.0',
+    label: 'Doubao Speech 2.0',
+    menu: true,
     modality: 'audio',
     mode: 'text-to-speech',
     source: 'builtin',
@@ -142,7 +154,8 @@ function soundModel(): Model {
     id: `opendesign:${VOLC_SOUND_MODEL}`,
     provider: 'opendesign',
     modelId: VOLC_SOUND_MODEL,
-    label: 'Volcengine Seed Audio 1.0',
+    label: 'Seed Audio 1.0',
+    menu: true,
     modality: 'audio',
     mode: 'text-to-audio',
     source: 'builtin',
