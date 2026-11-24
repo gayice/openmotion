@@ -162,7 +162,7 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
     const trackEl = trackRef.current;
     if (!viewport || !trackEl) return;
     const measure = () => {
-      const maxOffset = Math.max(0, trackEl.scrollWidth - viewport.clientWidth);
+      const maxOffset = Math.max(0, viewport.scrollWidth - viewport.clientWidth, trackEl.scrollWidth - viewport.clientWidth);
       panRef.current.maxOffset = maxOffset;
       panRef.current.offset = Math.max(0, Math.min(maxOffset, panRef.current.offset));
       trackEl.style.transform = `translate3d(${-panRef.current.offset.toFixed(2)}px, 0, 0)`;
@@ -327,14 +327,17 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
     const viewport = viewportRef.current;
     const trackEl = trackRef.current;
     if (!viewport || !trackEl || panRef.current.maxOffset <= 0) return;
-    const cardLeft = card.offsetLeft;
-    const cardRight = cardLeft + card.offsetWidth;
-    const viewLeft = panRef.current.offset;
-    const viewRight = viewLeft + viewport.clientWidth;
-    let next = viewLeft;
-    if (cardLeft < viewLeft) next = cardLeft;
-    else if (cardRight > viewRight) next = cardRight - viewport.clientWidth;
-    next = Math.max(0, Math.min(panRef.current.maxOffset, next));
+    if (paused) {
+      card.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      return;
+    }
+    const bounds = viewport.getBoundingClientRect();
+    const item = card.getBoundingClientRect();
+    const inset = parseFloat(getComputedStyle(viewport).paddingInlineStart) || 0;
+    const leftGap = item.left - bounds.left - inset;
+    const rightOverflow = item.right - bounds.right + inset;
+    const delta = leftGap < 0 ? leftGap : Math.max(0, rightOverflow);
+    const next = Math.max(0, Math.min(panRef.current.maxOffset, panRef.current.offset + delta));
     if (next !== panRef.current.offset) {
       panRef.current.offset = next;
       trackEl.style.transform = `translate3d(${-next.toFixed(2)}px, 0, 0)`;
