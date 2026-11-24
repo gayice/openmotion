@@ -4,6 +4,7 @@
  * Uses an ephemeral token so only messages from the active preview iframe are accepted.
  */
 import type { DesignCommentAnchor } from '../../../shared/design-project';
+import { DESIGN_ANNOTATION_BRIDGE } from '../../../shared/design-annotation-bridge.ts';
 
 export type PickedElement = NonNullable<DesignCommentAnchor['element']>;
 export type DeckStateMessage = { active: number; count: number };
@@ -60,6 +61,7 @@ export function buildBridgeSrcDoc(rawHtml: string, baseHref: string, token: stri
   const bridge = `<script data-om-design-bridge>
 (function(){
   const TOKEN = ${safeToken};
+${DESIGN_ANNOTATION_BRIDGE}
   let pick = ${pickEnabled ? 'true' : 'false'};
   const box = document.createElement('div');
   box.setAttribute('data-om-hover', '1');
@@ -137,6 +139,7 @@ export function buildBridgeSrcDoc(rawHtml: string, baseHref: string, token: stri
       element: describe(el),
       clientPoint: { x: e.clientX || Math.round(r.left + r.width / 2), y: e.clientY || Math.round(r.top + r.height / 2) },
       viewport: { width: innerWidth, height: innerHeight },
+      scroll: designAnnotationScroll(el.parentElement),
       rect: { x: r.left, y: r.top, width: r.width, height: r.height }
     }, '*');
   }, true);

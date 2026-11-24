@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Popover } from '@base-ui/react/popover';
 import { Button } from 'open-design-ui/button';
 import type { BrowserConsoleEntry } from '../../../shared/browser';
@@ -12,6 +12,7 @@ import type { ReviewAnnotation, ReviewPoint } from '../../../shared/review-comme
 import { IconButton } from 'open-design-ui/icon-button';
 import { Tooltip } from '../components/ui';
 import { OpenDesignLoadingMark } from '../components/ui/OpenDesignLoadingMark';
+import { Skeleton } from '../components/ui/Skeleton';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
@@ -36,15 +37,74 @@ import './design.css';
 
 type AnnotationTool = 'none' | 'comment' | 'region' | 'pen';
 type SidebarTab = 'files' | 'comments' | 'versions';
+type PreviewPoint = NonNullable<DesignCommentAnchor['scroll']>;
+type PreviewBox = PickedElement['box'];
+type AnnotationScope = { offset: PreviewPoint; clip: PreviewBox };
+type TrackedScope = { id: string; containers?: PreviewPoint['containers']; point?: PreviewPoint };
 type PendingDraft = {
   element?: PickedElement;
   region?: { x: number; y: number; width: number; height: number };
   annotation?: ReviewAnnotation;
   pinX: number;
   pinY: number;
+  scroll: PreviewPoint;
 };
 
 const ZOOM_STEPS = [50, 75, 100, 125, 150];
+const ANNOTATION_PREVIEW_RATIO = 16 / 9;
+const ORIGIN = { x: 0, y: 0 };
+const DRAFT_ELEMENT_ID = 'pending';
+
+function previewScrollOffset(captured: PreviewPoint = ORIGIN, current: PreviewPoint, nested: PreviewPoint = ORIGIN): PreviewPoint {
+  return { x: captured.x - current.x + nested.x, y: captured.y - current.y + nested.y };
+}
+
+function isPreviewPoint(value: unknown): value is PreviewPoint {
+  if (!value || typeof value !== 'object') return false;
+  const point = value as PreviewPoint;
+  return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+function isPreviewBox(value: unknown): value is PreviewBox {
+  if (!isPreviewPoint(value)) return false;
+  const box = value as PreviewBox;
+  return Number.isFinite(box.width) && Number.isFinite(box.height);
+}
+
+function AnnotationLayer({ clip, children }: { clip?: PreviewBox; children: ReactNode }) {
+  if (!clip) return <>{children}</>;
+  if (clip.width <= 0 || clip.height <= 0) return null;
+  const right = clip.x + clip.width;
+  const bottom = clip.y + clip.height;
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, pointerEvents: 'none',
+      clipPath: `polygon(${clip.x}px ${clip.y}px, ${right}px ${clip.y}px, ${right}px ${bottom}px, ${clip.x}px ${bottom}px)`,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function PositionedStroke({
+  annotation,
+  offset = ORIGIN,
+  selected,
+}: {
+  annotation: ReviewAnnotation;
+  offset?: PreviewPoint;
+  selected?: boolean;
+}) {
+  return (
+    <svg width="100%" height="100%" viewBox="0 0 1000 1000" preserveAspectRatio="none"
+      style={{ position: 'absolute', left: offset.x, top: offset.y, overflow: 'visible', pointerEvents: 'none' }}
+      aria-hidden="true">
+      <g className={selected !== undefined ? 'om-design-annotation-group' : undefined} data-selected={selected}>
+        <ReviewAnnotationGraphic annotation={{ ...annotation, width: 1000, height: 1000 }} />
+      </g>
+    </svg>
+  );
+}
 
 function formatTime(ms: number) {
   try { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
@@ -109,16 +169,18 @@ export function overlayLocalPoint(el: Pick<HTMLElement, 'getBoundingClientRect' 
 }
 
 function AnnotationVisualPreview({
-  element,
   region,
   annotation,
   viewport,
+  imageUrl,
 }: {
-  element?: { selector: string };
-  region?: { x: number; y: number; width: number; height: number };
+  region?: DesignCommentAnchor['region'];
   annotation?: ReviewAnnotation;
   viewport?: { width: number; height: number };
+  imageUrl?: string;
 }) {
+  const { t } = useI18n();
+  const [imageStatus, setImageStatus] = useState<'loading' | 'loaded' | 'unavailable'>('loading');
   if (annotation) {
     const b = annotationBounds(annotation);
     return (
@@ -135,29 +197,60 @@ function AnnotationVisualPreview({
       </div>
     );
   }
-  if (region) {
-    const vw = Math.max(1, viewport?.width ?? 1440);
-    const vh = Math.max(1, viewport?.height ?? 900);
-    const leftPct = Math.max(0, Math.min(96, (region.x / vw) * 100));
-    const topPct = Math.max(0, Math.min(96, (region.y / vh) * 100));
-    const widthPct = Math.max(4, Math.min(100 - leftPct, (region.width / vw) * 100));
-    const heightPct = Math.max(4, Math.min(100 - topPct, (region.height / vh) * 100));
+  if (!region || !viewport) return null;
+
+  const viewportWidth = Math.max(1, viewport.width);
+  const viewportHeight = Math.max(1, viewport.height);
+  const x = Math.max(0, region.x);
+  const y = Math.max(0, region.y);
+  const width = Math.max(0, Math.min(viewportWidth, region.x + region.width) - x);
+  const height = Math.max(0, Math.min(viewportHeight, region.y + region.height) - y);
+  const selection = <rect className="om-design-annotation-selection" x={x} y={y} width={width} height={height} vectorEffect="non-scaling-stroke" />;
+  if (!imageUrl || imageStatus === 'unavailable') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div className="om-design-annotation-thumb" aria-hidden="true">
-          <div className="om-design-annotation-thumb-region" style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }} />
-        </div>
-        <div className="om-design-annotation-meta">
-          <span>Region · {Math.round(region.width)} × {Math.round(region.height)}</span>
-          <span>({Math.round(region.x)}, {Math.round(region.y)})</span>
-        </div>
+      <div className="om-design-annotation-fallback">
+        <svg className="om-design-annotation-map" aria-hidden="true" viewBox={`0 0 ${viewportWidth} ${viewportHeight}`}>
+          <rect className="om-design-annotation-map-page" width={viewportWidth} height={viewportHeight} vectorEffect="non-scaling-stroke" />
+          {selection}
+        </svg>
+        {imageUrl ? t('Preview unavailable') : `${Math.round(region.width)} × ${Math.round(region.height)}`}
       </div>
     );
   }
-  if (element) {
-    return <code className="om-design-selector-chip">{element.selector}</code>;
-  }
-  return null;
+
+  // Cropping keeps the full selection and enough surrounding page to locate it.
+  const previewWidth = Math.max(Math.min(viewportWidth, viewportHeight * ANNOTATION_PREVIEW_RATIO), width, height * ANNOTATION_PREVIEW_RATIO);
+  const previewHeight = previewWidth / ANNOTATION_PREVIEW_RATIO;
+  const left = Math.min(Math.max(0, x + (width - previewWidth) / 2), Math.max(0, viewportWidth - previewWidth))
+    - Math.max(0, previewWidth - viewportWidth) / 2;
+  const top = Math.min(Math.max(0, y + (height - previewHeight) / 2), Math.max(0, viewportHeight - previewHeight))
+    - Math.max(0, previewHeight - viewportHeight) / 2;
+  return (
+    <div className="om-design-annotation-thumb om-design-annotation-snapshot">
+      {imageStatus === 'loading' && <Skeleton className="om-design-thumb-skeleton" />}
+      <img
+        className="om-design-annotation-snapshot-image"
+        src={imageUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        data-loaded={imageStatus === 'loaded'}
+        style={{
+          left: `${-left / previewWidth * 100}%`,
+          top: `${-top / previewHeight * 100}%`,
+          width: `${viewportWidth / previewWidth * 100}%`,
+          height: `${viewportHeight / previewHeight * 100}%`,
+        }}
+        onLoad={() => setImageStatus('loaded')}
+        onError={() => setImageStatus('unavailable')}
+      />
+      {imageStatus === 'loaded' && (
+        <svg className="om-design-annotation-snapshot-overlay" aria-hidden="true" viewBox={`${left} ${top} ${previewWidth} ${previewHeight}`} preserveAspectRatio="none">
+          {selection}
+        </svg>
+      )}
+    </div>
+  );
 }
 
 export interface DesignProjectEditorProps {
@@ -233,6 +326,7 @@ export function DesignProjectEditor({
   const [zoom, setZoom] = useState(100);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
+  const previewVersion = previewVersionId === currentVersionId ? undefined : versions.find(version => version.id === previewVersionId);
 
   const [sidebarOpen, setSidebarOpen] = useState(!embedded);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('files');
@@ -273,6 +367,7 @@ export function DesignProjectEditor({
   const [openInOpen, setOpenInOpen] = useState(false);
   const [deviceOpen, setDeviceOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [restoringVersion, setRestoringVersion] = useState(false);
 
   // Region / Pen drawing state
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
@@ -282,6 +377,31 @@ export function DesignProjectEditor({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const bridgeToken = useMemo(() => makeRequestId('bridge'), []);
+  const [previewScroll, setPreviewScroll] = useState<PreviewPoint>(ORIGIN);
+  const [previewElementBoxes, setPreviewElementBoxes] = useState(() => new Map<string, PreviewBox>());
+  const [previewScopes, setPreviewScopes] = useState(() => new Map<string, AnnotationScope>());
+  const previewScrollRef = useRef(ORIGIN);
+  const drawingScrollRef = useRef(ORIGIN);
+  const drawingRequestRef = useRef<{ id: string; draft: PendingDraft; timer: number } | null>(null);
+  const clearDrawingRequest = useCallback(() => {
+    const request = drawingRequestRef.current;
+    if (request) window.clearTimeout(request.timer);
+    drawingRequestRef.current = null;
+    return request;
+  }, []);
+  useEffect(() => { clearDrawingRequest(); return () => { clearDrawingRequest(); }; }, [activeTool, clearDrawingRequest]);
+  const finishDrawingDraft = useCallback((id: string, point?: PreviewPoint) => {
+    if (drawingRequestRef.current?.id !== id) return;
+    const request = clearDrawingRequest();
+    if (!request) return;
+    setPendingDraft({
+      ...request.draft,
+      scroll: point?.containers?.length
+        ? { ...request.draft.scroll, containers: point.containers }
+        : request.draft.scroll,
+    });
+    setCommentText('');
+  }, [clearDrawingRequest]);
   const captureResolversRef = useRef<Map<string, (dataUrl: string | null) => void>>(new Map());
   const consoleSeqRef = useRef(0);
   const onConsoleEntryRef = useRef(onConsoleEntry);
@@ -360,13 +480,24 @@ export function DesignProjectEditor({
     setSelectedCode(null);
   }, [requestedFile, setEffectiveViewMode]);
 
-  // Sync title, active file, and default viewport when project loads
+  // Sync title and default viewport when project loads
   useEffect(() => {
     if (!project) return;
     setTitleDraft(project.title);
-    setActiveFile(prev => (prev && project.files.some(f => f.path === prev) ? prev : project.entry));
     if (!controlledViewport && project.scenario === 'mobile-app') setViewportId('mobile');
   }, [project?.id]);
+
+  const previousEntryRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!project) return;
+    const previousEntry = previousEntryRef.current;
+    previousEntryRef.current = project.entry;
+    setActiveFile(file => file !== previousEntry && project.files.some(item => item.path === file) ? file : project.entry);
+  }, [project?.id, project?.entry, project?.revision]);
+
+  useEffect(() => {
+    if (previewVersionId === currentVersionId) setPreviewVersionId(null);
+  }, [previewVersionId, currentVersionId]);
 
   // Reset edit session when switching project or active file
   useEffect(() => {
@@ -405,14 +536,11 @@ export function DesignProjectEditor({
   const deckSlides = useMemo(() => (isDeck && fileContent ? parseDeckSlides(fileContent) : []), [isDeck, fileContent]);
   const speakerNotes = useMemo(() => (isDeck && fileContent ? parseSpeakerNotes(fileContent) : []), [isDeck, fileContent]);
 
-  useEffect(() => {
-    if (deckSlides.length > 0 && slideCount === 0) setSlideCount(deckSlides.length);
-  }, [deckSlides.length, slideCount]);
-
   // Escape dismisses active annotation tool / composer
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        clearDrawingRequest();
         updateAnnotationTool('none');
         setPendingDraft(null);
         setDragStart(null);
@@ -421,7 +549,7 @@ export function DesignProjectEditor({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [updateAnnotationTool]);
+  }, [clearDrawingRequest, updateAnnotationTool]);
 
   // Listen to bridge postMessages from preview iframe
   useEffect(() => {
@@ -437,6 +565,40 @@ export function DesignProjectEditor({
       }
       if (data.token !== bridgeToken) return;
       if (!fromOwnIframe) return;
+      if (data.type === 'om:design-scroll' || data.type === 'om:design-element-boxes' || data.type === 'om:design-picked-scroll') {
+        if (!event.source || event.source !== iframeRef.current?.contentWindow) return;
+        if (data.type === 'om:design-picked-scroll') {
+          const point = data.scroll;
+          if (!isPreviewPoint(point)) return;
+          const containers = Array.isArray(point.containers) ? point.containers.slice(0, 24).filter(container =>
+            isPreviewPoint(container) && typeof container.selector === 'string' && container.selector.length > 0 && container.selector.length <= 1000,
+          ) : [];
+          finishDrawingDraft(data.requestId, { x: point.x, y: point.y, containers });
+        } else if (data.type === 'om:design-scroll') {
+          const { x, y } = data.scroll ?? {};
+          if (Number.isFinite(x) && Number.isFinite(y)
+            && (x !== previewScrollRef.current.x || y !== previewScrollRef.current.y)) {
+            previewScrollRef.current = { x, y };
+            setPreviewScroll(previewScrollRef.current);
+          }
+        } else if (Array.isArray(data.boxes)) {
+          const boxes = new Map<string, PreviewBox>();
+          for (const item of data.boxes) {
+            if (typeof item?.id === 'string' && isPreviewBox(item.box)) boxes.set(item.id, item.box);
+          }
+          const scopes = new Map<string, AnnotationScope>();
+          if (Array.isArray(data.scopes)) {
+            for (const item of data.scopes) {
+              if (typeof item?.id === 'string' && isPreviewPoint(item.offset) && isPreviewBox(item.clip)) {
+                scopes.set(item.id, { offset: item.offset, clip: item.clip });
+              }
+            }
+          }
+          setPreviewElementBoxes(boxes);
+          setPreviewScopes(scopes);
+        }
+        return;
+      }
       if ((data.type === 'om:design-pick' || data.type === 'om:preview-pick') && data.element) {
         const raw = data.element as Record<string, unknown>;
         const rawBox = (raw.box ?? raw.rect ?? data.rect ?? { x: 0, y: 0, width: 40, height: 24 }) as {
@@ -468,7 +630,10 @@ export function DesignProjectEditor({
           x: picked.box.x + Math.round(picked.box.width / 2),
           y: picked.box.y + Math.min(24, Math.round(picked.box.height / 2)),
         };
-        setPendingDraft({ element: picked, pinX: pt.x, pinY: pt.y });
+        const scroll = isPreviewPoint(data.scroll)
+          ? data.scroll
+          : previewScrollRef.current;
+        setPendingDraft({ element: picked, pinX: pt.x, pinY: pt.y, scroll });
         setCommentText('');
       } else if (data.type === 'om:preview-console' && typeof data.text === 'string') {
         const level = data.level === 'warn' ? 'warn' : data.level === 'log' ? 'log' : 'error';
@@ -491,7 +656,7 @@ export function DesignProjectEditor({
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [bridgeToken]);
+  }, [bridgeToken, finishDrawingDraft]);
 
   // Toggle pick mode inside bridge iframe
   useEffect(() => {
@@ -593,17 +758,30 @@ export function DesignProjectEditor({
     }
   };
 
-  const handleRestoreVersion = async (versionId: string, label: string) => {
-    if (!project) return;
+  const handleRestoreVersion = async (versionId: string) => {
+    if (!project || restoringVersion) return;
+    setRestoringVersion(true);
     try {
-      const { project: updated } = await designClient.restoreVersion(project.id, versionId, project.revision);
+      const { project: updated, version, changed } = await designClient.restoreVersion(project.id, versionId, project.revision);
       setProject(updated);
       setPreviewVersionId(null);
+      if (changed || previewVersion) {
+        setActiveSlide(0);
+        setSlideCount(0);
+        setReloadNonce(n => n + 1);
+      }
       await refresh();
-      showToast(t('Restored {label} as a new version', { label }), 'info', 'feedback');
+      showToast(t(changed ? 'Set {label} as the current version' : '{label} is already the current version.', { label: version.label }), 'info', 'feedback');
     } catch (err) {
       showToast(err instanceof Error ? err.message : t('Could not restore version'), 'error', 'feedback');
+    } finally {
+      setRestoringVersion(false);
     }
+  };
+
+  const handlePreviewVersion = (versionId: string) => {
+    setPreviewVersionId(versionId === currentVersionId ? null : versionId);
+    setEffectiveViewMode('preview');
   };
 
   const handleExport = async (format: DesignExportFormat, versionId?: string | null) => {
@@ -645,10 +823,14 @@ export function DesignProjectEditor({
   const frameWidth = currentViewport.width ? (rotated ? currentViewport.height! : currentViewport.width) : null;
   const frameHeight = currentViewport.height ? (rotated ? currentViewport.width! : currentViewport.height) : null;
 
+  const previewFile = previewVersion
+    ? previewVersion.entry ?? previewVersion.files.find(file => file.path === project?.entry)?.path
+      ?? previewVersion.files.find(file => /\.html?$/i.test(file.path))?.path
+    : activeFile;
   const baseRawPreviewUrl = project
-    ? `${designRoutes.raw(project.id, activeFile || project.entry)}${previewVersionId ? `?version=${encodeURIComponent(previewVersionId)}&r=${reloadNonce}` : `?r=${reloadNonce}`}`
+    ? `${designRoutes.raw(project.id, previewFile || project.entry)}${previewVersion ? `?version=${encodeURIComponent(previewVersion.id)}&r=${reloadNonce}` : `?r=${reloadNonce}`}`
     : '';
-  const rawPreviewUrl = embedded && baseRawPreviewUrl
+  const rawPreviewUrl = (embedded || previewVersion) && baseRawPreviewUrl
     ? `${baseRawPreviewUrl}&omBridge=${encodeURIComponent(bridgeToken)}`
     : baseRawPreviewUrl;
 
@@ -802,6 +984,7 @@ export function DesignProjectEditor({
       const anchor: DesignCommentAnchor = {
         filePath: activeFile || project.entry,
         viewport: { id: effectiveViewportId, width: vw, height: vh },
+        scroll: pendingDraft.scroll,
         ...(isDeck ? { slideIndex: activeSlide } : {}),
         ...(pendingDraft.element ? { element: pendingDraft.element } : {}),
         ...(pendingDraft.region ? { region: pendingDraft.region } : {}),
@@ -851,7 +1034,9 @@ export function DesignProjectEditor({
   const onOverlayPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (activeTool !== 'region' && activeTool !== 'pen') return;
     if (event.target !== event.currentTarget) return;
+    clearDrawingRequest();
     setPendingDraft(null);
+    drawingScrollRef.current = previewScrollRef.current;
     const { x, y, width, height } = overlayLocalPoint(event.currentTarget, event.clientX, event.clientY);
     event.currentTarget.setPointerCapture(event.pointerId);
     if (activeTool === 'region') {
@@ -871,6 +1056,17 @@ export function DesignProjectEditor({
     }
   };
 
+  const composeDrawingDraft = (draft: PendingDraft, point: PreviewPoint) => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    const id = makeRequestId('scroll');
+    drawingRequestRef.current = {
+      id, draft,
+      timer: window.setTimeout(() => finishDrawingDraft(id), 250),
+    };
+    win.postMessage({ type: 'om:design-pick-scroll', token: bridgeToken, requestId: id, point }, '*');
+  };
+
   const onOverlayPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     const { width: w, height: h } = overlayLocalPoint(event.currentTarget, event.clientX, event.clientY);
     if (activeTool === 'region' && dragStart && dragCurrent) {
@@ -881,15 +1077,15 @@ export function DesignProjectEditor({
       setDragStart(null);
       setDragCurrent(null);
       if (width > 8 && height > 8) {
-        setPendingDraft({ region: { x, y, width, height }, pinX: x, pinY: y });
-        setCommentText('');
+        composeDrawingDraft({ region: { x, y, width, height }, pinX: x, pinY: y, scroll: drawingScrollRef.current },
+          { x: x + width / 2, y: y + height / 2 });
       }
     } else if (activeTool === 'pen' && penPoints.length >= 2) {
       const annotation: ReviewAnnotation = { version: 1, coordinateSpace: 'normalized', width: w, height: h, marks: [{ kind: 'pen', points: penPoints }] };
       const bounds = annotationBounds(annotation);
       setPenPoints([]);
-      setPendingDraft({ annotation, pinX: bounds.minX * w, pinY: bounds.minY * h });
-      setCommentText('');
+      composeDrawingDraft({ annotation, pinX: bounds.minX * w, pinY: bounds.minY * h, scroll: drawingScrollRef.current },
+        { x: penPoints[0].x * w, y: penPoints[0].y * h });
     }
   };
 
@@ -905,8 +1101,50 @@ export function DesignProjectEditor({
     && (!isDeck || c.anchor.slideIndex === undefined || c.anchor.slideIndex === activeSlide),
   ), [openComments, activeFile, project?.entry, isDeck, activeSlide]);
 
-  const awaitingSrcDoc = !embedded && effectiveViewMode === 'preview' && isHtmlActive && !previewVersionId && !fileContent;
-  const useSrcDoc = !embedded && effectiveViewMode === 'preview' && isHtmlActive && !previewVersionId && Boolean(fileContent);
+  const pendingElement = pendingDraft?.element;
+  const trackedElements = useMemo(() => {
+    const elements = pinComments.flatMap(({ id, anchor }) => anchor.element
+      ? [{ id, selector: anchor.element.selector, elementId: anchor.element.elementId }]
+      : []);
+    if (pendingElement) elements.push({ id: DRAFT_ELEMENT_ID, selector: pendingElement.selector, elementId: pendingElement.elementId });
+    return elements;
+  }, [pinComments, pendingElement]);
+
+  const pendingContainers = pendingDraft?.scroll.containers;
+  const trackedScopes = useMemo(() => {
+    const scopes = pinComments.flatMap<TrackedScope>(({ id, anchor }) => {
+      if (anchor.scroll?.containers?.length) return [{ id, containers: anchor.scroll.containers }];
+      // Existing freeform comments only have a viewport position. Use it to find the scroll container.
+      if (anchor.scroll) return [];
+      if (anchor.region) {
+        const { x, y, width, height } = anchor.region;
+        return [{ id, point: { x: x + width / 2, y: y + height / 2 } }];
+      }
+      const firstPoint = anchor.annotation?.marks[0]?.points[0];
+      return firstPoint ? [{ id, point: { x: firstPoint.x * anchor.viewport.width, y: firstPoint.y * anchor.viewport.height } }] : [];
+    });
+    if (pendingContainers?.length) scopes.push({ id: DRAFT_ELEMENT_ID, containers: pendingContainers });
+    return scopes;
+  }, [pinComments, pendingContainers]);
+  const trackAnnotations = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage({
+      type: 'om:design-track-elements', token: bridgeToken, elements: trackedElements, scopes: trackedScopes,
+    }, '*');
+  }, [bridgeToken, trackedElements, trackedScopes]);
+  useEffect(trackAnnotations, [trackAnnotations]);
+
+  const pendingBox = pendingElement && previewElementBoxes.get(DRAFT_ELEMENT_ID);
+  const pendingScope = pendingContainers?.length ? previewScopes.get(DRAFT_ELEMENT_ID) : undefined;
+  const pendingOffset = pendingBox && pendingElement
+    ? { x: pendingBox.x - pendingElement.box.x, y: pendingBox.y - pendingElement.box.y }
+    : previewScrollOffset(pendingDraft?.scroll, previewScroll, pendingScope?.offset);
+  const positionedComments = pinComments.map(c => {
+    const scope = previewScopes.get(c.id);
+    return { comment: c, clip: scope?.clip, offset: previewScrollOffset(c.anchor.scroll, previewScroll, scope?.offset) };
+  });
+
+  const awaitingSrcDoc = !embedded && effectiveViewMode === 'preview' && isHtmlActive && !previewVersion && !fileContent;
+  const useSrcDoc = !embedded && effectiveViewMode === 'preview' && isHtmlActive && !previewVersion && Boolean(fileContent);
   const baseHref = useMemo(() => {
     if (!project) return '';
     const relDir = activeFile.includes('/') ? activeFile.slice(0, activeFile.lastIndexOf('/') + 1) : '';
@@ -941,7 +1179,7 @@ export function DesignProjectEditor({
       {versions.length === 0 ? (
         <span className="om-design-muted">{t('No saved versions yet.')}</span>
       ) : versions.map(v => (
-        <div key={v.id} className="om-design-item-card" data-active={v.id === (previewVersionId ?? currentVersionId)}>
+        <div key={v.id} className="om-design-item-card" data-active={v.id === (previewVersion?.id ?? currentVersionId)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
             <strong>{v.label}</strong>
             <span className="om-design-badge">{v.source}</span>
@@ -949,12 +1187,12 @@ export function DesignProjectEditor({
           </div>
           {v.summary && <span className="om-design-muted">{v.summary}</span>}
           <div style={{ display: 'flex', gap: 6 }}>
-            <Button type="button" size="sm" variant="ghost" onClick={() => { setPreviewVersionId(v.id === currentVersionId ? null : v.id); setVersionsOpen(false); }}>
+            <Button type="button" size="sm" variant="ghost" onClick={() => { handlePreviewVersion(v.id); setVersionsOpen(false); }}>
               {v.id === currentVersionId ? t('Current') : t('Preview')}
             </Button>
             {v.id !== currentVersionId && (
-              <Button type="button" size="sm" variant="secondary" onClick={() => { void handleRestoreVersion(v.id, v.label); setVersionsOpen(false); }}>
-                {t('Restore')}
+              <Button type="button" size="sm" variant="secondary" disabled={restoringVersion} onClick={() => { void handleRestoreVersion(v.id); setVersionsOpen(false); }}>
+                {t('Make current version')}
               </Button>
             )}
           </div>
@@ -1397,14 +1635,11 @@ export function DesignProjectEditor({
       )}
 
       {/* Historical version preview notice */}
-      {previewVersionId && (
+      {previewVersion && (
         <div className="om-design-banner">
-          <span>{t('Previewing historical snapshot {label}', { label: versions.find(v => v.id === previewVersionId)?.label ?? '' })}</span>
+          <span>{t('Previewing historical snapshot {label}', { label: previewVersion.label })}</span>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button type="button" size="sm" variant="secondary" onClick={() => {
-              const ver = versions.find(v => v.id === previewVersionId);
-              if (ver) void handleRestoreVersion(ver.id, ver.label);
-            }}>{t('Restore as new version')}</Button>
+            <Button type="button" size="sm" variant="secondary" disabled={restoringVersion} onClick={() => void handleRestoreVersion(previewVersion.id)}>{t('Make current version')}</Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setPreviewVersionId(null)}>{t('Return to current')}</Button>
           </div>
         </div>
@@ -1435,7 +1670,7 @@ export function DesignProjectEditor({
                     >
                       <span className="om-design-file-name">
                         <RemixIcon name={file.kind === 'html' ? 'file-code-line' : file.kind === 'image' ? 'file-image-line' : 'file-text-line'} size={14} />
-                        <span>{file.path}</span>
+                        <span title={file.path}>{file.path}</span>
                       </span>
                       <span className="om-design-file-size">{formatBytes(file.size)}</span>
                     </Button>
@@ -1452,10 +1687,11 @@ export function DesignProjectEditor({
                 ) : (
                   <Button key={file.path} type="button" size="sm" variant={activeFile === file.path ? 'secondary' : 'ghost'}
                     className="om-design-file-row"
+                    aria-current={activeFile === file.path || undefined}
                     onClick={() => { setActiveFile(file.path); if (file.kind !== 'html') setEffectiveViewMode('code'); }}>
                     <span className="om-design-file-name">
                       <RemixIcon name={file.kind === 'html' ? 'file-code-line' : file.kind === 'image' ? 'file-image-line' : 'file-text-line'} size={14} />
-                      <span>{file.path}</span>
+                      <span title={file.path}>{file.path}</span>
                     </span>
                     <span className="om-design-file-size">{formatBytes(file.size)}</span>
                   </Button>
@@ -1515,38 +1751,45 @@ export function DesignProjectEditor({
                   )}
 
                   {visibleComments.map((comment, idx) => {
-                    const kindLabel = comment.anchor.annotation ? t('Draw') : comment.anchor.region ? t('Region') : t('Comment');
-                    const kindIcon = comment.anchor.annotation ? 'pen-nib-line' : comment.anchor.region ? 'shape-2-line' : 'chat-1-line';
+                    const { annotation, element, filePath, region, slideIndex, viewport } = comment.anchor;
+                    const kindLabel = annotation ? t('Draw') : region ? t('Region') : element ? t('Element') : t('Comment');
+                    const kindIcon = annotation ? 'pen-nib-line' : region ? 'shape-2-line' : 'chat-1-line';
+                    const targetBox = region ?? element?.box;
+                    const targetText = element?.text?.trim() || element?.label.trim();
+                    const viewportLabel = designViewports.find(item => item.id === viewport.id)?.label ?? 'Desktop';
                     const focusComment = () => {
                       setSelectedCommentId(comment.id);
                       setEffectiveViewMode('preview');
-                      if (comment.anchor.filePath && comment.anchor.filePath !== activeFile) setActiveFile(comment.anchor.filePath);
-                      if (isDeck && comment.anchor.slideIndex !== undefined && comment.anchor.slideIndex !== activeSlide) {
-                        sendDeckCommand('go', comment.anchor.slideIndex);
+                      if (filePath && filePath !== activeFile) setActiveFile(filePath);
+                      if (isDeck && slideIndex !== undefined && slideIndex !== activeSlide) {
+                        sendDeckCommand('go', slideIndex);
                       }
                     };
                     return (
-                      <div key={comment.id} className="om-design-item-card" data-active={selectedCommentId === comment.id} style={{ cursor: 'pointer' }} onClick={focusComment}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                          <span className="om-design-badge">
-                            <RemixIcon name={kindIcon} size={11} />
-                            <span>#{idx + 1} · {kindLabel} · {comment.anchor.viewport.id}</span>
+                      <div key={comment.id} className="om-design-item-card om-design-comment-card" data-active={selectedCommentId === comment.id} onClick={focusComment}>
+                        <div className="om-design-comment-heading">
+                          <span className="om-design-comment-location">
+                            <RemixIcon name={kindIcon} size={13} />
+                            <span>#{idx + 1} · {kindLabel}</span>
+                            {slideIndex === undefined ? (
+                              <span className="om-design-muted">{t(viewportLabel)}</span>
+                            ) : (
+                              <Button type="button" size="sm" variant="ghost" onClick={event => { event.stopPropagation(); focusComment(); }}>
+                                {t('Slide {n}', { n: slideIndex + 1 })}
+                              </Button>
+                            )}
                           </span>
-                          <span className="om-design-muted">{comment.status}</span>
+                          <span className="om-design-muted">{t(comment.status === 'open' ? 'Unresolved' : 'Resolved')}</span>
                         </div>
+                        {targetText && <p className="om-design-comment-target" title={targetText}>{targetText}</p>}
                         <AnnotationVisualPreview
-                          element={comment.anchor.element}
-                          region={comment.anchor.region}
-                          annotation={comment.anchor.annotation}
-                          viewport={comment.anchor.viewport}
+                          region={targetBox}
+                          annotation={annotation}
+                          viewport={viewport}
+                          imageUrl={targetBox && !annotation ? designRoutes.commentPreview(project.id, comment.id) : undefined}
                         />
                         <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>{comment.text}</p>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
-                          {comment.anchor.slideIndex !== undefined && (
-                            <Button type="button" size="sm" variant="ghost" onClick={focusComment}>
-                              {t('Slide {n}', { n: comment.anchor.slideIndex + 1 })}
-                            </Button>
-                          )}
                           <Button type="button" size="sm" variant="ghost" onClick={() => void toggleCommentStatus(comment)}>
                             {comment.status === 'open' ? t('Resolve') : t('Reopen')}
                           </Button>
@@ -1589,7 +1832,7 @@ export function DesignProjectEditor({
               {sidebarTab === 'versions' && (versions.length === 0 ? (
                 <p className="om-design-muted">{t('No saved versions yet.')}</p>
               ) : versions.map(ver => (
-                <div key={ver.id} className="om-design-item-card" data-active={ver.id === (previewVersionId ?? currentVersionId)}>
+                <div key={ver.id} className="om-design-item-card" data-active={ver.id === (previewVersion?.id ?? currentVersionId)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                     <strong>{ver.label}</strong>
                     <span className="om-design-badge">{ver.source}</span>
@@ -1597,12 +1840,12 @@ export function DesignProjectEditor({
                   {ver.summary && <span className="om-design-muted">{ver.summary}</span>}
                   {ver.prompt && <span className="om-design-muted" style={{ fontStyle: 'italic' }}>{ver.prompt}</span>}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => setPreviewVersionId(ver.id === currentVersionId ? null : ver.id)}>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => handlePreviewVersion(ver.id)}>
                       {ver.id === currentVersionId ? t('Current') : t('Preview')}
                     </Button>
                     {ver.id !== currentVersionId && (
-                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleRestoreVersion(ver.id, ver.label)}>
-                        {t('Restore')}
+                      <Button type="button" size="sm" variant="secondary" disabled={restoringVersion} onClick={() => void handleRestoreVersion(ver.id)}>
+                        {t('Make current version')}
                       </Button>
                     )}
                     <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('zip', ver.id)}>{t('Export')}</Button>
@@ -1647,7 +1890,7 @@ export function DesignProjectEditor({
                 >
                   <iframe
                     ref={iframeRef}
-                    key={`${project.id}:${activeFile}:${reloadNonce}`}
+                    key={`${project.id}:${previewFile}:${previewVersion?.id ?? project.revision}:${reloadNonce}`}
                     title={project.title}
                     className="om-design-iframe"
                     sandbox={embedded
@@ -1658,9 +1901,16 @@ export function DesignProjectEditor({
                     onLoad={() => {
                       const win = iframeRef.current?.contentWindow;
                       if (!win) return;
+                      clearDrawingRequest();
+                      previewScrollRef.current = ORIGIN;
+                      setPreviewScroll(ORIGIN);
+                      setPreviewElementBoxes(new Map());
+                      setPreviewScopes(new Map());
                       try {
                         win.postMessage({ type: 'om:design-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
                         win.postMessage({ type: 'om:preview-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
+                        win.postMessage({ type: 'om:design-request-scroll', token: bridgeToken }, '*');
+                        trackAnnotations();
                       } catch { /* ignore */ }
                     }}
                   />
@@ -1692,81 +1942,77 @@ export function DesignProjectEditor({
 
                     {/* Pending region outline while composing comment */}
                     {pendingDraft?.region && (
-                      <div
-                        className="om-design-region-box"
-                        data-selected="true"
-                        style={{
-                          left: pendingDraft.region.x,
-                          top: pendingDraft.region.y,
-                          width: pendingDraft.region.width,
-                          height: pendingDraft.region.height,
-                        }}
-                      />
+                      <AnnotationLayer clip={pendingScope?.clip}>
+                        <div
+                          className="om-design-region-box"
+                          data-selected="true"
+                          style={{
+                            left: pendingDraft.region.x + pendingOffset.x,
+                            top: pendingDraft.region.y + pendingOffset.y,
+                            width: pendingDraft.region.width,
+                            height: pendingDraft.region.height,
+                          }}
+                        />
+                      </AnnotationLayer>
                     )}
 
                     {/* Saved region outlines */}
-                    {pinComments.map(c => c.anchor.region ? (
-                      <div
-                        key={`region-${c.id}`}
-                        className="om-design-region-box"
-                        data-saved="true"
-                        data-selected={selectedCommentId === c.id}
-                        style={{
-                          left: c.anchor.region.x,
-                          top: c.anchor.region.y,
-                          width: c.anchor.region.width,
-                          height: c.anchor.region.height,
-                        }}
-                      />
-                    ) : null)}
+                    {positionedComments.map(({ comment: c, clip, offset }) => {
+                      const { region } = c.anchor;
+                      if (!region) return null;
+                      return (
+                        <AnnotationLayer key={`region-${c.id}`} clip={clip}>
+                          <div
+                            className="om-design-region-box"
+                            data-saved="true"
+                            data-selected={selectedCommentId === c.id}
+                            style={{ left: region.x + offset.x, top: region.y + offset.y, width: region.width, height: region.height }}
+                          />
+                        </AnnotationLayer>
+                      );
+                    })}
 
                     {/* Live pen stroke, pending draft stroke & saved vector annotations */}
-                    <svg width="100%" height="100%" viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-                      {penPoints.length >= 2 && (
-                        <ReviewAnnotationGraphic annotation={{ version: 1, coordinateSpace: 'normalized', width: 1000, height: 1000, marks: [{ kind: 'pen', points: penPoints }] }} />
-                      )}
-                      {pendingDraft?.annotation && (
-                        <g className="om-design-annotation-group" data-selected="true">
-                          <ReviewAnnotationGraphic annotation={{ ...pendingDraft.annotation, width: 1000, height: 1000 }} />
-                        </g>
-                      )}
-                      {pinComments.map(c => c.anchor.annotation ? (
-                        <g key={c.id} className="om-design-annotation-group" data-selected={selectedCommentId === c.id}>
-                          <ReviewAnnotationGraphic annotation={{ ...c.anchor.annotation, width: 1000, height: 1000 }} />
-                        </g>
-                      ) : null)}
-                    </svg>
+                    {penPoints.length >= 2 && (
+                      <PositionedStroke annotation={{ version: 1, coordinateSpace: 'normalized', width: 1000, height: 1000, marks: [{ kind: 'pen', points: penPoints }] }} />
+                    )}
+                    {pendingDraft?.annotation && (
+                      <AnnotationLayer clip={pendingScope?.clip}>
+                        <PositionedStroke annotation={pendingDraft.annotation} offset={pendingOffset} selected />
+                      </AnnotationLayer>
+                    )}
+                    {positionedComments.map(({ comment: c, clip, offset }) => c.anchor.annotation ? (
+                      <AnnotationLayer key={c.id} clip={clip}>
+                        <PositionedStroke annotation={c.anchor.annotation} offset={offset} selected={selectedCommentId === c.id} />
+                      </AnnotationLayer>
+                    ) : null)}
 
                     {/* Saved pins */}
-                    {pinComments.map((c, idx) => {
-                      const ow = overlayRef.current?.clientWidth ?? c.anchor.viewport.width ?? 960;
-                      const oh = overlayRef.current?.clientHeight ?? c.anchor.viewport.height ?? 640;
-                      const drawBounds = c.anchor.annotation ? annotationBounds(c.anchor.annotation) : null;
-                      const x = c.anchor.region
-                        ? c.anchor.region.x
-                        : drawBounds
-                          ? drawBounds.minX * ow
-                          : c.anchor.element
-                            ? c.anchor.element.box.x + c.anchor.element.box.width / 2
-                            : 32 + idx * 28;
-                      const y = c.anchor.region
-                        ? c.anchor.region.y
-                        : drawBounds
-                          ? drawBounds.minY * oh
-                          : c.anchor.element
-                            ? c.anchor.element.box.y + 12
-                            : 32;
+                    {positionedComments.map(({ comment: c, clip, offset }, idx) => {
+                      const { annotation, element, region } = c.anchor;
+                      const drawBounds = annotation && annotationBounds(annotation);
+                      const liveBox = element && previewElementBoxes.get(c.id);
+                      const elementBox = liveBox ?? element?.box;
+                      const left = region ? region.x + offset.x
+                        : drawBounds ? `calc(${drawBounds.minX * 100}% + ${offset.x}px)`
+                        : elementBox ? elementBox.x + elementBox.width / 2 + (liveBox ? 0 : offset.x)
+                        : 32 + idx * 28;
+                      const top = region ? region.y + offset.y
+                        : drawBounds ? `calc(${drawBounds.minY * 100}% + ${offset.y}px)`
+                        : elementBox ? elementBox.y + 12 + (liveBox ? 0 : offset.y)
+                        : 32;
                       return (
-                        <div
-                          key={c.id}
-                          className="om-design-pin"
-                          data-selected={selectedCommentId === c.id}
-                          style={{ left: x, top: y }}
-                          title={c.text}
-                          onClick={() => { setSelectedCommentId(c.id); setSidebarOpen(true); setSidebarTab('comments'); }}
-                        >
-                          {idx + 1}
-                        </div>
+                        <AnnotationLayer key={c.id} clip={clip}>
+                          <div
+                            className="om-design-pin"
+                            data-selected={selectedCommentId === c.id}
+                            style={{ left, top }}
+                            title={c.text}
+                            onClick={() => { setSelectedCommentId(c.id); setSidebarOpen(true); setSidebarTab('comments'); }}
+                          >
+                            {idx + 1}
+                          </div>
+                        </AnnotationLayer>
                       );
                     })}
 
@@ -1781,15 +2027,17 @@ export function DesignProjectEditor({
                         const b = annotationBounds(pendingAnnotation);
                         return { x: b.minX * ow, y: b.minY * oh, width: (b.maxX - b.minX) * ow, height: (b.maxY - b.minY) * oh };
                       })() : null;
-                      const anchorBox = pendingDraft.region ?? drawBox;
-                      const preferredX = anchorBox ? anchorBox.x : pendingDraft.pinX;
+                      const draftBox = pendingDraft.region ?? drawBox;
+                      const anchorBox = draftBox && { ...draftBox, y: draftBox.y + pendingOffset.y };
+                      const pinY = pendingDraft.pinY + pendingOffset.y;
+                      const preferredX = (draftBox?.x ?? pendingDraft.pinX) + pendingOffset.x;
                       const preferredY = anchorBox
                         ? (anchorBox.y + anchorBox.height + 12 + popH <= oh
                           ? anchorBox.y + anchorBox.height + 12
                           : Math.max(12, anchorBox.y - popH - 12))
-                        : (pendingDraft.pinY + 14 + popH <= oh
-                          ? pendingDraft.pinY + 14
-                          : Math.max(12, pendingDraft.pinY - popH - 14));
+                        : (pinY + 14 + popH <= oh
+                          ? pinY + 14
+                          : Math.max(12, pinY - popH - 14));
                       const left = Math.min(Math.max(12, preferredX), Math.max(12, ow - popW - 12));
                       const top = Math.min(Math.max(12, preferredY), Math.max(12, oh - popH - 12));
                       return (
@@ -1799,7 +2047,6 @@ export function DesignProjectEditor({
                             <IconButton aria-label={t('Cancel')} icon={<RemixIcon name="close-line" size={14} />} onClick={() => setPendingDraft(null)} />
                           </div>
                           <AnnotationVisualPreview
-                            element={pendingDraft.element}
                             region={pendingDraft.region}
                             annotation={pendingDraft.annotation}
                             viewport={{ width: ow, height: oh }}

@@ -221,7 +221,7 @@ export const designClient = {
       `${designRoutes.versions(id)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   restoreVersion: (id: string, versionId: string, expectedRevision: string) =>
-    requestJson<{ project: DesignProjectDetail; version: DesignVersion }>(designRoutes.restore(id, versionId), {
+    requestJson<{ project: DesignProjectDetail; version: DesignVersion; changed: boolean }>(designRoutes.restore(id, versionId), {
       method: 'POST',
       body: JSON.stringify({ expectedRevision, requestId: makeRequestId('restore-ver') }),
     }),

@@ -161,6 +161,7 @@ export type SuperAgentResourceCatalog = {
   counts: SuperAgentResourceCounts;
   items: SuperAgentResourceAttachment[];
   generatedAt: number;
+  assetPage?: { total: number; nextOffset: number | null };
 };
 
 export type SuperAgentArtifactKind =

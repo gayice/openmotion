@@ -5,6 +5,7 @@ import { Writable } from 'node:stream';
 import { WorkspaceBrowser } from '../browser.ts';
 import { webAddress } from '../shared/browser.ts';
 import { injectPreviewBridgeHtml } from '../shared/preview-bridge.ts';
+import { buildBridgeSrcDoc } from '../studio/src/design/previewBridge.ts';
 
 test('browser addresses accept bare domains and local ports but reject executable and credential URLs', () => {
   assert.equal(webAddress('baidu.com'), 'https://baidu.com/');
@@ -278,6 +279,104 @@ test('real Chromium sandboxed ?omBridge= iframes deliver om:preview-pick, om:pre
     const captures = await tab.page.evaluate(() => (window as any).__captures);
     assert.ok(String(captures['cap-drawn'].dataUrl).startsWith('data:image/png;base64,'));
     assert.equal(captures['cap-blank'].dataUrl, null);
+  } finally {
+    await browser.close();
+    site.closeAllConnections();
+    await new Promise<void>(resolve => site.close(() => resolve()));
+  }
+});
+
+test('Chromium preview bridges keep tracked annotation boxes aligned as content scrolls', { timeout: 60_000 }, async t => {
+  const token = 'omb_design_scroll_fixture';
+  const fixture = `<!doctype html><body style="margin:0;min-height:1600px">
+    <div id="scroller" style="position:absolute;top:240px;left:20px;width:200px;height:160px;overflow:auto">
+      <div style="height:700px;position:relative">
+        <button id="target" style="position:absolute;top:90px;left:10px;width:100px;height:30px">Target</button>
+      </div>
+    </div>
+  </body>`;
+  const site = createServer((req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.end(req.url === '/preview' ? injectPreviewBridgeHtml(fixture, token, true) : '<!doctype html><body id="host" style="margin:0"></body>');
+  });
+  await new Promise<void>(resolve => site.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(site.address() as { port: number }).port}`;
+  const browser = new WorkspaceBrowser(process.cwd());
+  try {
+    for (const source of ['raw', 'srcdoc']) {
+      await t.test(source, async () => {
+        const { page } = await browser.open('session-design-scroll', source, base, { width: 800, height: 600, dpr: 1 });
+        await page.waitForSelector('#host', { timeout: 5000 });
+        const preview = source === 'srcdoc' ? buildBridgeSrcDoc(fixture, `${base}/`, token, true) : null;
+        await page.evaluate(({ preview, token }) => {
+          const iframe = document.createElement('iframe');
+          iframe.setAttribute('sandbox', 'allow-scripts');
+          iframe.style.cssText = 'display:block;width:400px;height:300px;border:0';
+          if (preview) iframe.srcdoc = preview;
+          else iframe.src = '/preview';
+          const messages: Record<string, any[]> = {};
+          (window as any).__annotationMessages = messages;
+          window.addEventListener('message', event => {
+            if (event.source === iframe.contentWindow && event.data?.token === token) {
+              (messages[event.data.type] ??= []).push(event.data);
+            }
+          });
+          document.body.appendChild(iframe);
+        }, { preview, token });
+        const frame = await (await page.waitForSelector('iframe', { timeout: 5000 }))!.contentFrame();
+        assert.ok(frame);
+        await frame.waitForSelector('#target', { timeout: 5000 });
+
+        const post = (type: string, options = {}) => page.evaluate(message => {
+          document.querySelector('iframe')!.contentWindow?.postMessage(message, '*');
+        }, { type, token, ...options });
+        const waitForScroll = (y: number) => page.waitForFunction(expectedY =>
+          (window as any).__annotationMessages['om:design-scroll']?.at(-1)?.scroll.y === expectedY,
+        { timeout: 5000 }, y);
+        const waitForBox = (y: number) => page.waitForFunction(expectedY =>
+          (window as any).__annotationMessages['om:design-element-boxes']?.at(-1)?.boxes.some(
+            (entry: any) => entry.id === 'target-pin' && entry.box.y === expectedY,
+          ), { timeout: 5000 }, y);
+
+        await post('om:design-request-scroll');
+        await waitForScroll(0);
+        await post('om:design-track-elements', {
+          elements: [{ id: 'target-pin', selector: '#target', elementId: 'target' }],
+          scopes: [{ id: 'region', containers: [{ selector: '#scroller', x: 0, y: 0 }] }],
+        });
+        await waitForBox(330);
+
+        await post('om:design-track-elements', { token: 'wrong_token', elements: [] });
+        await frame.evaluate(() => window.scrollTo(0, 120));
+        await waitForScroll(120);
+        await waitForBox(210);
+
+        await frame.$eval('#scroller', scroller => { scroller.scrollTop = 60; });
+        await waitForBox(150);
+        const scope = await page.evaluate(() => (window as any).__annotationMessages['om:design-element-boxes'].at(-1).scopes[0]);
+        assert.deepEqual(scope.offset, { x: 0, y: -60 });
+        assert.equal(scope.clip.y, 120);
+
+        await post('om:design-pick-scroll', { requestId: 'region-drag', point: { x: 40, y: 160 } });
+        const scrollPick = await page.waitForFunction(() => (window as any).__annotationMessages['om:design-picked-scroll']?.at(-1), { timeout: 5000 });
+        const { requestId, scroll: regionScroll } = await scrollPick.jsonValue();
+        assert.equal(requestId, 'region-drag');
+        assert.deepEqual(regionScroll, { x: 0, y: 120, containers: [{ selector: '#scroller', x: 0, y: 60 }] });
+
+        if (source === 'raw') await post('om:preview-mode', { pick: true });
+        await page.mouse.click(40, 160);
+        const pickType = source === 'raw' ? 'om:preview-pick' : 'om:design-pick';
+        const picked = await page.waitForFunction(type => (window as any).__annotationMessages[type]?.at(-1),
+          { timeout: 5000 }, pickType);
+        const { rect, scroll } = await picked.jsonValue();
+        assert.deepEqual(rect, { x: 30, y: 150, width: 100, height: 30 });
+        assert.deepEqual(scroll, { x: 0, y: 120, containers: [{ selector: '#scroller', x: 0, y: 60 }] });
+
+        await frame.evaluate(() => window.scrollTo(0, 0));
+        await waitForScroll(0);
+        await waitForBox(270);
+      });
+    }
   } finally {
     await browser.close();
     site.closeAllConnections();

@@ -12,7 +12,7 @@ import { WorkspaceChromeContext } from '../motion/WorkspaceChromeContext';
 import { SUPER_AGENT_API } from '../../../shared/super-agent';
 import { buildSuperAgentHandoff } from '../../../shared/capability-hub';
 import { queueSuperAgentHandoff } from '../motion/superAgentHandoff';
-import { clampSuperAgentViewerWidth, SuperAgentWorkspace } from './SuperAgentWorkspace';
+import { clampSuperAgentViewerWidth, stackedArtifactViewerHeight, SuperAgentWorkspace } from './SuperAgentWorkspace';
 import { ExecutionTimeline, formatElapsedDuration, SuperAgentLiveProgressDock } from './ExecutionTimeline';
 import { SimpleMarkdown } from './SimpleMarkdown';
 import { DEFAULT_MODE_COMPOSER_OPTIONS, getModeComposerPlaceholder } from './ModeComposerControls';
@@ -1058,6 +1058,15 @@ it('clamps Artifact Viewer width against docked sidebar and center stream across
   expect(clampSuperAgentViewerWidth(600, 600, 0)).toBe(329);
   expect(clampSuperAgentViewerWidth(100, 600, 0)).toBe(329);
   expect(clampSuperAgentViewerWidth(400, 420, 0)).toBe(240);
+});
+
+it('sizes the stacked Artifact Viewer within the available height', () => {
+  expect(stackedArtifactViewerHeight(701, null)).toEqual({ min: 160, max: 480, value: 364 });
+  expect(stackedArtifactViewerHeight(701, 20).value).toBe(160);
+  expect(stackedArtifactViewerHeight(701, 600).value).toBe(480);
+  expect(stackedArtifactViewerHeight(406, 350)).toEqual({ min: 141, max: 185, value: 185 });
+  expect(stackedArtifactViewerHeight(301, 210)).toEqual({ min: 105, max: 126, value: 126 });
+  expect(stackedArtifactViewerHeight(0, 400)).toEqual({ min: 0, max: 0, value: 0 });
 });
 
 it('renders ExecutionTimeline live status, grouped Work Log with diffs/commands, deliverables, and enhanced SimpleMarkdown', async () => {
@@ -3695,7 +3704,7 @@ it('SuperAgentWorkspace shows task project directory in header and opens changed
   expect(container.textContent).toContain('.hud { color: red; }');
 });
 
-function setupDesignStudioMocks({ assetLoadFailures = 0 } = {}) {
+function setupDesignStudioMocks({ assetLoadFailures = 0, extraVideoAssets = 0, assetPageFailures = 0 } = {}) {
   const createdChats: any[] = [];
   const turnBodies: any[] = [];
   let chatCounter = 0;
@@ -3811,6 +3820,12 @@ function setupDesignStudioMocks({ assetLoadFailures = 0 } = {}) {
       versionId: 'v1',
       previewUrl: '/motion-api/assets/asset-clip-1/versions/v1/file',
     },
+    ...Array.from({ length: extraVideoAssets }, (_, index) => ({
+      id: `extra-video-${index + 1}`,
+      kind: 'asset',
+      title: `Extra Video ${index + 1}`,
+      modality: 'video',
+    })),
   ];
 
   const json = (body: unknown, status = 200) =>
@@ -3878,6 +3893,23 @@ function setupDesignStudioMocks({ assetLoadFailures = 0 } = {}) {
         assetLoadFailures -= 1;
         return json({ error: 'Resource fetch failed' }, 503);
       }
+      if (kind === 'asset') {
+        const offset = Number(parsed.searchParams.get('offset') ?? 0);
+        if (offset && assetPageFailures > 0) {
+          assetPageFailures -= 1;
+          return json({ error: 'Resource fetch failed' }, 503);
+        }
+        const modality = parsed.searchParams.get('modality');
+        const query = parsed.searchParams.get('query') ?? '';
+        const limit = Number(parsed.searchParams.get('limit') ?? 60);
+        const matches = assets.filter(asset => (!modality || asset.modality === modality) && asset.title.toLowerCase().includes(query));
+        return json({
+          counts: sampleResources.counts,
+          items: matches.slice(offset, offset + limit),
+          assetPage: { total: matches.length, nextOffset: offset + limit < matches.length ? offset + limit : null },
+          generatedAt: Date.now(),
+        });
+      }
       const items = kind === 'design-template'
         ? designItems
         : kind === 'design-project'
@@ -3886,9 +3918,7 @@ function setupDesignStudioMocks({ assetLoadFailures = 0 } = {}) {
             ? brandKits
             : kind === 'design-skill'
               ? designSkills
-              : kind === 'asset'
-                ? assets
-                : [...designItems, ...designProjects, ...brandKits, ...designSkills, ...assets];
+              : [...designItems, ...designProjects, ...brandKits, ...designSkills, ...assets];
       return json({ counts: sampleResources.counts, items, generatedAt: Date.now() });
     }
     if (url === `${SUPER_AGENT_API}/chats` && method === 'GET') {
@@ -4019,7 +4049,7 @@ it('enters Design Studio from starter card with all 8 modules, floating option p
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(imageSearch, 'Vercel');
       imageSearch.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    expect(badge(assetTab)).toBe('0');
+    await vi.waitFor(() => expect(badge(assetTab)).toBe('0'));
     expect(badge(brandTab)).toBe('1');
     expect(imageGrid.textContent).toContain('No matching resources found');
     await act(async () => brandTab.click());
@@ -6370,7 +6400,7 @@ it('clamps out-of-range bounded numeric SSOT parameters on blur and emits clampe
 });
 
 it('exposes Motion graphics as a primary entry, moves Create audio into Explore more, and separates AI Video vs Motion Graphics templates', async () => {
-  setupDesignStudioMocks();
+  setupDesignStudioMocks({ extraVideoAssets: 24, assetPageFailures: 1 });
   const flushMore = async () => {
     await flush();
     await flush();
@@ -6461,10 +6491,21 @@ it('exposes Motion graphics as a primary entry, moves Create audio into Explore 
     tab => tab.textContent?.startsWith('Workspace Assets'),
   )!;
   await act(async () => assetTab.click());
+  expect(assetTab.querySelector('.om-sa-tab-count')?.textContent).toBe('25');
   const videoCard = container.querySelector('.om-sa-showcase-grid .om-sa-showcase-card')!;
   expect(videoCard.textContent).toContain('Product Video');
   expect(videoCard.querySelector('[data-modality="video"] [data-thumbnail-loading]')).toBeTruthy();
   expect(videoCard.querySelector('video')).toBeNull();
+  const loadMore = container.querySelector<HTMLButtonElement>('.om-sa-showcase-load-more button')!;
+  expect(loadMore.textContent).toContain('Load more');
+  await act(async () => loadMore.click());
+  await flushMore();
+  expect(loadMore.textContent).toContain('Retry');
+  expect(videoCard.textContent).toContain('Product Video');
+  await act(async () => loadMore.click());
+  await flushMore();
+  expect(container.querySelector('.om-sa-showcase-grid')?.textContent).toContain('Extra Video 24');
+  expect(container.querySelector('.om-sa-showcase-load-more')).toBeNull();
 });
 
 it('embeds Motion Studio Editor in Super Agent without remounting on revision updates and supports selection attach + open-file', async () => {

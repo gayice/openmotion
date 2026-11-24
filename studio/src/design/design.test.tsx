@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { designRoutes, type DesignVersion } from '../../../shared/design-project';
 import { I18nProvider } from '../i18n/I18n';
 import { NearScreenIntersectionObserver } from '../hooks/intersectionObserverTestUtils';
 import { readWorkspacePage, workspacePageHref } from '../motion/workspacePageRouting';
@@ -46,7 +47,8 @@ const mockComment = {
   anchor: {
     filePath: 'index.html',
     viewport: { id: 'desktop' as const, width: 1440, height: 900 },
-    element: { selector: 'h1', tagName: 'h1', label: 'Hero', box: { x: 40, y: 40, width: 300, height: 48 } },
+    slideIndex: 3,
+    element: { selector: 'main.deck > section.slide > h1', tagName: 'h1', label: 'Hero', text: 'Start a free trial', box: { x: 40, y: 40, width: 300, height: 48 } },
   },
   sourceRevision: revision,
   author: 'user' as const,
@@ -187,13 +189,102 @@ describe('DesignProjectEditor', () => {
     const commentsTab = Array.from(container.querySelectorAll('[role="tablist"] button')).find(b => b.textContent?.includes('Comments'));
     expect(commentsTab).toBeTruthy();
     await act(async () => { commentsTab!.click(); });
-    expect(container.textContent).toContain('Increase hero button contrast');
+    const commentCard = container.querySelector('.om-design-comment-card')!;
+    expect(commentCard.textContent).toContain('Slide 4');
+    expect(commentCard.textContent).toContain('Start a free trial');
+    expect(commentCard.textContent).toContain('Increase hero button contrast');
+    expect(commentCard.textContent).not.toContain(mockComment.anchor.element.selector);
+    const thumbnail = commentCard.querySelector<HTMLImageElement>('.om-design-annotation-snapshot-image')!;
+    expect(thumbnail.getAttribute('src')).toBe(designRoutes.commentPreview(projectId, mockComment.id));
+    await act(async () => { thumbnail.dispatchEvent(new Event('load')); });
+    const highlight = commentCard.querySelector('.om-design-annotation-snapshot-overlay rect');
+    expect(highlight?.getAttribute('x')).toBe('40');
+    expect(highlight?.getAttribute('width')).toBe('300');
+    await act(async () => { thumbnail.dispatchEvent(new Event('error')); });
+    expect(commentCard.querySelector('.om-design-annotation-fallback')?.textContent).toBe('Preview unavailable');
+    expect(commentCard.textContent).toContain('Start a free trial');
 
     const resolveBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Resolve');
     expect(resolveBtn).toBeTruthy();
     await act(async () => { resolveBtn!.click(); });
     expect(resolved).toBe(true);
     expect(DesignApiError).toBeDefined();
+  });
+
+  it('previews a historical version separately and makes it current without adding history', async () => {
+    const previous = {
+      id: 'v-1', label: 'v1', number: 1, createdAt: 1700000000000,
+      source: 'create' as const, summary: null, prompt: null, restoredFrom: null, entry: 'cover.html',
+      files: [{ ...mockProject.files[0]!, path: 'cover.html' }],
+    };
+    const active = { ...previous, id: 'v-2', label: 'v2', number: 2, source: 'agent' as const, entry: mockProject.entry, files: mockProject.files };
+    let currentProject = { ...mockProject, versionId: active.id, versionLabel: active.label };
+    const versions: DesignVersion[] = [active, previous];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({}));
+    vi.spyOn(designClient, 'getProject').mockImplementation(async () => ({ project: currentProject }));
+    vi.spyOn(designClient, 'listVersions').mockImplementation(async () => ({
+      versions: [...versions], currentVersionId: currentProject.versionId, nextCursor: null,
+    }));
+    vi.spyOn(designClient, 'readFile').mockImplementation(async () => ({
+      path: currentProject.entry, content: '<h1>Deck</h1>', revision: currentProject.revision, size: 13, nextOffset: null,
+    }));
+    const restoreVersion = vi.spyOn(designClient, 'restoreVersion').mockImplementationOnce(async () => {
+      currentProject = { ...currentProject, entry: previous.entry, files: [{ ...mockProject.files[0]!, path: previous.entry }],
+        versionId: previous.id, versionLabel: previous.label, revision: 'c'.repeat(64) };
+      return { project: currentProject, version: previous, changed: true };
+    });
+    const onNotify = vi.fn();
+
+    await act(async () => {
+      root.render(<I18nProvider><DesignProjectEditor projectId={projectId} onBack={() => {}} embedded onNotify={onNotify} /></I18nProvider>);
+    });
+    const initialFrame = container.querySelector<HTMLIFrameElement>('.om-design-iframe');
+    expect(initialFrame?.getAttribute('src')).toContain('/index.html?r=0');
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Toggle panel"]')!.click(); });
+    const versionsTab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tablist"] button')).find(button => button.textContent === 'Versions');
+    await act(async () => { versionsTab!.click(); });
+    const versionButton = (version: string, action: string) => {
+      const card = Array.from(container.querySelectorAll('.om-design-item-card')).find(item => item.querySelector('strong')?.textContent === version);
+      return Array.from(card!.querySelectorAll('button')).find(button => button.textContent === action);
+    };
+    await act(async () => { versionButton('v1', 'Preview')!.click(); });
+    expect(restoreVersion).not.toHaveBeenCalled();
+    expect(versionButton('v2', 'Current')).toBeDefined();
+    expect(container.querySelector('.om-design-iframe')?.getAttribute('src')).toContain('/cover.html?version=v-1');
+    const makeCurrent = Array.from(container.querySelectorAll<HTMLButtonElement>('.om-design-banner button')).find(button => button.textContent === 'Make current version');
+    await act(async () => { makeCurrent!.click(); });
+    const restoredFrame = container.querySelector<HTMLIFrameElement>('.om-design-iframe');
+    expect(restoreVersion).toHaveBeenCalledExactlyOnceWith(projectId, 'v-1', revision);
+    expect(restoredFrame).not.toBe(initialFrame);
+    expect(restoredFrame?.getAttribute('src')).toContain('/cover.html?r=1');
+    expect(container.querySelector('.om-design-banner')).toBeNull();
+    expect(container.querySelectorAll('.om-design-item-card')).toHaveLength(2);
+    expect(versionButton('v1', 'Current')).toBeDefined();
+    expect(versionButton('v1', 'Make current version')).toBeUndefined();
+    expect(versionButton('v2', 'Make current version')).toBeDefined();
+    expect(onNotify).toHaveBeenLastCalledWith('Set v1 as the current version', 'info');
+  });
+
+  it('refreshes the active version after an external switch with the same file revision', async () => {
+    const files = [...mockProject.files, { ...mockProject.files[0]!, path: 'cover.html' }];
+    let project = { ...mockProject, files, versionId: 'v-2', versionLabel: 'v2' };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({}));
+    vi.spyOn(designClient, 'getProject').mockImplementation(async () => ({ project }));
+    vi.spyOn(designClient, 'getState').mockImplementation(async () => ({
+      revision: project.revision, versionId: project.versionId, openComments: project.openComments, updatedAt: project.updatedAt,
+    }));
+    vi.spyOn(designClient, 'readFile').mockImplementation(async (_id, file) => ({
+      path: file, content: '<h1>Deck</h1>', revision, size: 13, nextOffset: null,
+    }));
+
+    await act(async () => {
+      root.render(<I18nProvider><DesignProjectEditor projectId={projectId} onBack={() => {}} embedded /></I18nProvider>);
+    });
+    expect(container.querySelector('.om-design-iframe')?.getAttribute('src')).toContain('/index.html?r=0');
+    project = { ...project, versionId: 'v-1', versionLabel: 'v1', entry: 'cover.html' };
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(container.querySelector('.om-design-iframe')?.getAttribute('src')).toContain('/cover.html?r=0');
+    expect(Array.from(container.querySelectorAll('button')).some(button => button.textContent?.trim() === 'v1')).toBe(true);
   });
 
   it('renders line numbers and syntax token classes in CodeViewer', async () => {

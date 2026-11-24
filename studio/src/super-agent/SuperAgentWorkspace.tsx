@@ -1,7 +1,7 @@
 import { Dialog } from '@base-ui/react/dialog';
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
-import { Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from 'react';
 import { LOCAL_DIRECT_RUNTIME_ID, type AgentRuntimeInfo } from '../../../shared/agent-runtimes';
 import { pickPreferredLocalAgent } from '../../../shared/local-agents';
 import { assetMediaUrl } from '../../../shared/asset-library';
@@ -90,8 +90,10 @@ export const preloadArtifactBrowserPane = ArtifactBrowserPane.preload;
 
 const MIN_CENTER_WIDTH = 300;
 const MIN_VIEWER_WIDTH = 320;
-const RESIZER_WIDTH = 1;
+const RESIZER_SIZE = 1;
 const COMPACT_THREE_PANE_WIDTH = 1180;
+const MIN_STACKED_CHAT_HEIGHT = 220;
+const MIN_STACKED_VIEWER_HEIGHT = 160;
 
 export function clampSuperAgentViewerWidth(
   desiredWidth: number,
@@ -102,7 +104,7 @@ export function clampSuperAgentViewerWidth(
   if (totalWidth <= 0) {
     return Math.max(MIN_VIEWER_WIDTH, Math.min(960, desired));
   }
-  const available = Math.max(0, Math.floor(totalWidth - sidebarWidth - RESIZER_WIDTH));
+  const available = Math.max(0, Math.floor(totalWidth - sidebarWidth - RESIZER_SIZE));
   if (available <= MIN_CENTER_WIDTH + MIN_VIEWER_WIDTH) {
     return Math.max(240, Math.floor(available * 0.55));
   }
@@ -111,6 +113,15 @@ export function clampSuperAgentViewerWidth(
     Math.min(Math.floor(available * 0.72), available - MIN_CENTER_WIDTH),
   );
   return Math.max(MIN_VIEWER_WIDTH, Math.min(maxViewer, desired));
+}
+
+export function stackedArtifactViewerHeight(totalHeight: number, preferredHeight: number | null) {
+  const available = Math.max(0, totalHeight - RESIZER_SIZE);
+  // On short screens, let both panes share the available height.
+  const min = Math.min(MIN_STACKED_VIEWER_HEIGHT, Math.floor(available * 0.35));
+  const max = available - Math.min(MIN_STACKED_CHAT_HEIGHT, Math.floor(available * 0.58));
+  const value = Math.max(min, Math.min(max, Math.round(preferredHeight ?? available * 0.52)));
+  return { min, max, value };
 }
 
 function upsertSummary(list: SuperAgentChatSummary[], chat: SuperAgentChat): SuperAgentChatSummary[] {
@@ -377,11 +388,13 @@ export function SuperAgentWorkspace({
       ? window.matchMedia('(max-width: 900px)').matches
       : false,
   );
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [{ width: containerWidth, height: containerHeight }, setContainerSize] = useState({ width: 0, height: 0 });
   const [sidebarOpen, setSidebarOpen] = useState(!narrow);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerExpanded, setViewerExpanded] = useState(false);
+  const viewerPaneId = useId();
   const [viewerWidth, setViewerWidth] = useState<number | null>(null);
+  const [viewerHeight, setViewerHeight] = useState<number | null>(null);
   const [openTabIds, setOpenTabIds] = useState<string[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>(NEW_VIEWER_TAB_ID);
   const [previewArtifacts, setPreviewArtifacts] = useState<SuperAgentArtifact[]>([]);
@@ -400,6 +413,7 @@ export function SuperAgentWorkspace({
   const rootRef = useRef<HTMLDivElement>(null);
   const sidebarDockedRef = useRef(true);
   const dragStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const heightDragRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
   const lastArtifactStateRef = useRef<{
     chatId: string | null;
     activeId?: string;
@@ -448,8 +462,11 @@ export function SuperAgentWorkspace({
     if (!el) return;
     let frame: number | null = null;
     const measure = () => {
-      const next = el.clientWidth;
-      if (next > 0) setContainerWidth(prev => (prev === next ? prev : next));
+      const width = el.clientWidth;
+      const height = el.clientHeight;
+      if (width > 0) {
+        setContainerSize(prev => (prev.width === width && prev.height === height ? prev : { width, height }));
+      }
     };
     const scheduleMeasure = () => {
       if (frame !== null) return;
@@ -1812,6 +1829,12 @@ export function SuperAgentWorkspace({
       : clampSuperAgentViewerWidth(viewerWidth, containerWidth, getDockedSidebarWidth());
 
   const maxViewerWidth = clampSuperAgentViewerWidth(10_000, containerWidth, getDockedSidebarWidth());
+  const stackedViewer = stackedArtifactViewerHeight(containerHeight, viewerHeight);
+  const viewerSizeStyle = narrow && !viewerExpanded && containerHeight > 0
+    ? { flexBasis: stackedViewer.value }
+    : effectiveViewerWidth === null
+      ? undefined
+      : { width: effectiveViewerWidth, flexBasis: effectiveViewerWidth, flexGrow: 0, flexShrink: 1, maxWidth: '100%' };
 
   const startResize = (clientX: number) => {
     const currentWidth = effectiveViewerWidth
@@ -2015,10 +2038,55 @@ export function SuperAgentWorkspace({
         />
       )}
 
+      {viewerOpen && !viewerExpanded && narrow && (
+        <div
+          role="separator"
+          tabIndex={0}
+          aria-orientation="horizontal"
+          aria-label={t('Resize Artifact Viewer height')}
+          aria-controls={viewerPaneId}
+          aria-valuemin={stackedViewer.min}
+          aria-valuemax={stackedViewer.max}
+          aria-valuenow={stackedViewer.value}
+          className="om-sa-resizer om-sa-resizer--horizontal"
+          onPointerDown={event => {
+            if (event.button !== 0 || !event.isPrimary) return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            heightDragRef.current = {
+              pointerId: event.pointerId,
+              startY: event.clientY,
+              startHeight: stackedViewer.value,
+            };
+          }}
+          onPointerMove={event => {
+            const drag = heightDragRef.current;
+            if (drag?.pointerId !== event.pointerId) return;
+            const height = drag.startHeight + drag.startY - event.clientY;
+            setViewerHeight(stackedArtifactViewerHeight(containerHeight, height).value);
+          }}
+          onLostPointerCapture={event => {
+            if (heightDragRef.current?.pointerId === event.pointerId) heightDragRef.current = null;
+          }}
+          onKeyDown={event => {
+            const { key } = event;
+            const { min, max, value } = stackedViewer;
+            if (key === 'ArrowUp' || key === 'ArrowDown') {
+              event.preventDefault();
+              setViewerHeight(stackedArtifactViewerHeight(containerHeight, value + (key === 'ArrowUp' ? 24 : -24)).value);
+            } else if (key === 'Home' || key === 'End') {
+              event.preventDefault();
+              setViewerHeight(key === 'Home' ? min : max);
+            }
+          }}
+        />
+      )}
+
       {viewerOpen && (
         <div
+          id={viewerPaneId}
           className="om-sa-viewer-slot"
-          style={effectiveViewerWidth === null ? undefined : { width: effectiveViewerWidth, flexBasis: effectiveViewerWidth, flexGrow: 0, flexShrink: 1, maxWidth: '100%' }}
+          style={viewerSizeStyle}
         >
           <Suspense fallback={<RouteSurfaceFallback compact />}>
             <ArtifactBrowserPane
