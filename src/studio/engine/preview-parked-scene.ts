@@ -11,65 +11,61 @@ export const PREVIEW_PARKED_SCENE = `
   // when parking or remounting it. Reapply only confirmed position deltas to a fresh host.
   const scenePlacements = new Map();
   let placementObserver;
-  function advanceScenePlacements(path, before, after) {
-    for (const [scene, placements] of scenePlacements) {
-      for (const [key, target] of placements) {
-        if (target.path !== path) continue;
-        if (target.version === before) target.version = after;
-        else placements.delete(key);
-      }
-      if (!placements.size) forgetScenePlacement(scene);
-    }
-  }
-  function forgetScenePlacement(scene) {
-    scenePlacements.delete(scene);
+  function forgetScenePlacement(path) {
+    scenePlacements.delete(path);
     if (!scenePlacements.size) placementObserver?.disconnect();
+  }
+  function advanceScenePlacements(path, before, after) {
+    const file = scenePlacements.get(path);
+    if (!file) return;
+    if (file.version === before) file.version = after;
+    else forgetScenePlacement(path);
   }
   function restoreScenePlacements(records) {
     for (const record of records) for (const host of record.addedNodes) {
       if (host.nodeType !== 1 || host.hasAttribute('data-hf-parked-scene')) continue;
-      const scene = host.getAttribute('data-hf-scene'), placements = scenePlacements.get(scene);
-      if (!placements || !Array.from(record.removedNodes).some(old =>
+      const scene = host.getAttribute('data-hf-scene');
+      if (!scene || !Array.from(record.removedNodes).some(old =>
         old.nodeType === 1 && old.hasAttribute('data-hf-parked-scene') && old.getAttribute('data-hf-scene') === scene)) continue;
-      for (const {path, selector, tag, styles, version} of placements.values()) {
+      const paths = new Set([host, ...host.querySelectorAll('[data-composition-file],[data-composition-src]')]
+        .map(el => el.getAttribute('data-composition-file') || el.getAttribute('data-composition-src')));
+      for (const path of paths) {
+        const file = scenePlacements.get(path);
+        if (!file) continue;
         const pending = !sourceVersions[path] && pendingForSource(path)[0];
-        if ((sourceVersions[path] || pending?.confirmedVersion || pending?.sha256) !== version) continue;
-        const nodes = Array.from(host.querySelectorAll(selector)).filter(node =>
-          node.localName === tag && sourceFileForElement(node) === path);
-        if (nodes.length !== 1) continue;
-        const style = nodes[0].style;
-        for (const [name, [from, to]] of styles) {
-          if (style.getPropertyValue(name) !== from || (typeof style.getPropertyPriority === 'function' && style.getPropertyPriority(name))) continue;
-          if (to) style.setProperty(name, to);
-          else style.removeProperty(name);
+        if ((sourceVersions[path] || pending?.confirmedVersion || pending?.sha256) !== file.version) continue;
+        for (const [selector, {tag, styles}] of file.targets) {
+          const nodes = Array.from(host.querySelectorAll(selector)).filter(node =>
+            node.localName === tag && sourceFileForElement(node) === path);
+          for (const node of nodes) for (const [name, [from, to]] of styles) {
+            const style = node.style;
+            if (style.getPropertyValue(name) !== from || (typeof style.getPropertyPriority === 'function' && style.getPropertyPriority(name))) continue;
+            if (to) style.setProperty(name, to);
+            else style.removeProperty(name);
+          }
         }
       }
     }
   }
   function rememberScenePlacement(node, path, selector, change, version) {
-    if (typeof window.__hfParkedSceneMarkup !== 'function') return;
-    let host = node.closest('[data-hf-scene]');
-    if (!host) return;
-    for (let outer; (outer = host.parentElement?.closest('[data-hf-scene]'));) host = outer;
-    if (node === host || !host.parentElement) return;
-    const scene = host.getAttribute('data-hf-scene');
-    let placements = scenePlacements.get(scene);
-    if (!placements) {
-      placements = new Map();
-      scenePlacements.set(scene, placements);
+    if (typeof window.__hfParkedSceneMarkup !== 'function' || !node.parentElement?.closest('[data-hf-scene]')) return;
+    if (!scenePlacements.size) {
       placementObserver ??= new MutationObserver(restoreScenePlacements);
-      placementObserver.observe(host.parentElement, {childList:true});
+      for (const host of document.querySelectorAll('[data-hf-scene][data-composition-file]')) {
+        if (host.parentElement && !host.parentElement.closest('[data-hf-scene]')) placementObserver.observe(host.parentElement, {childList:true});
+      }
     }
-    const key = JSON.stringify([path, selector]);
-    const target = placements.get(key) || {path, selector, tag:change.tag, version, styles:new Map()};
+    const file = scenePlacements.get(path) || {version, targets:new Map()};
+    const target = file.targets.get(selector) || {tag:change.tag, styles:new Map()};
     for (const [name, from, to] of change.styles) {
       const first = target.styles.get(name)?.[0] ?? from;
       if (first === to) target.styles.delete(name);
       else target.styles.set(name, [first, to]);
     }
-    if (target.styles.size) placements.set(key, target);
-    else placements.delete(key);
-    if (!placements.size) forgetScenePlacement(scene);
+    if (target.styles.size) file.targets.set(selector, target);
+    else file.targets.delete(selector);
+    if (file.targets.size) scenePlacements.set(path, file);
+    else forgetScenePlacement(path);
   }
 
   function sceneParts(doc) {
@@ -114,7 +110,7 @@ export const PREVIEW_PARKED_SCENE = `
         !sameOtherEntries(oldParts.scenes, newParts.scenes, scene) || !current()) return false;
 
     if (newParts.scenes[scene] !== oldParts.scenes[scene]) await window.__hfSwapScenes(html, signal);
-    forgetScenePlacement(scene);
+    forgetScenePlacement(path);
     confirmCanvasVersion(path, versions[path]);
     return true;
   }

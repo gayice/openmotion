@@ -125,12 +125,13 @@ it('retains only confirmed placement across real park/remount pairs and releases
     disconnect() { disconnected++; }
   }
   const tracker = runInNewContext(PREVIEW_PARKED_SCENE + '\n({rememberScenePlacement, advanceScenePlacements, forgetScenePlacement})', {
-    window: { __hfParkedSceneMarkup() {} }, sourceVersions, pendingForSource: () => pending,
+    window: { __hfParkedSceneMarkup() {} }, document, sourceVersions, pendingForSource: () => pending,
     MutationObserver: Observer, sourceFileForElement: () => file,
   });
   const makeHost = (left: string) => {
     const host = document.createElement('section');
     host.setAttribute('data-hf-scene', 'intro');
+    host.setAttribute('data-composition-file', file);
     host.innerHTML = '<h1 id="title">Title</h1>';
     const node = host.querySelector('h1')!;
     node.style.left = left;
@@ -143,11 +144,13 @@ it('retains only confirmed placement across real park/remount pairs and releases
     tracker.rememberScenePlacement(active.node, file, '#title', { tag: 'h1', styles: [['left', from, to]] }, after);
     sourceVersions[file] = after;
   };
-  const mount = (left: string, parked = true) => {
+  const mount = (left: string, parked = true, scene = 'intro', source = file) => {
     const previous = document.createElement('section');
-    previous.setAttribute('data-hf-scene', 'intro');
+    previous.setAttribute('data-hf-scene', scene);
     if (parked) previous.setAttribute('data-hf-parked-scene', '');
     const latest = makeHost(left);
+    latest.host.setAttribute('data-hf-scene', scene);
+    latest.host.setAttribute('data-composition-file', source);
     root.replaceChildren(latest.host);
     active = latest;
     notify([{ removedNodes: [previous], addedNodes: [latest.host] }]);
@@ -157,6 +160,8 @@ it('retains only confirmed placement across real park/remount pairs and releases
   move('b', 'c', '30px', '45px');
   assert.equal(mount('10px'), '45px');
   assert.equal(mount('10px'), '45px');
+  assert.equal(mount('10px', true, 'second-instance'), '45px');
+  assert.equal(mount('10px', true, 'unrelated', other), '10px');
   assert.equal(mount('12px'), '12px');
   // A replacement of a live host, even with the same file and element id, is not an unpark.
   assert.equal(mount('10px', false), '10px');
@@ -171,7 +176,7 @@ it('retains only confirmed placement across real park/remount pairs and releases
   assert.equal(mount('10px'), '10px');
   move('d', 'e', '10px', '55px');
   // A new template owns every node in its scene, including reused element ids.
-  tracker.forgetScenePlacement('intro');
+  tracker.forgetScenePlacement(file);
   assert.equal(disconnected, 2);
   assert.equal(mount('10px'), '10px');
 });
