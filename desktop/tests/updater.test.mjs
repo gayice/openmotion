@@ -4,7 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_DESKTOP_DOWNLOAD_URL, DEFAULT_UPDATE_BASE_URL } from '../../shared/desktop-builtin-rules.ts';
+import {
+  DEFAULT_DESKTOP_DOWNLOAD_URL,
+  DEFAULT_STUDIO_URLS,
+  DEFAULT_UPDATE_BASE_URL,
+} from '../../shared/desktop-builtin-rules.ts';
 import { validateSignedConfigPayloadBounds } from '../../shared/signed-config.ts';
 import { generateEd25519KeyPair } from '../../packages/signed-config/index.ts';
 import { injectBundleDebugId, resolveBuildTrustAnchors } from '../scripts/build.mjs';
@@ -31,6 +35,11 @@ import { resolveUpdaterMenuPresentation } from '../src/ux-controllers.ts';
 const testsDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(testsDir, '..');
 const repoRoot = path.resolve(desktopRoot, '..');
+const TEST_STUDIO_ORIGIN = DEFAULT_STUDIO_URLS.test;
+const TEST_STUDIO_HOST = new URL(TEST_STUDIO_ORIGIN).host;
+const FEISHU_BOT_HOST = 'open.feishu.cn';
+const TEST_FEISHU_WEBHOOK_URL = `https://${FEISHU_BOT_HOST}/open-apis/bot/v2/hook/test-hook-id`;
+const HTTP_FEISHU_WEBHOOK_URL = `http://${FEISHU_BOT_HOST}/open-apis/bot/v2/hook/abc`;
 
 function createFakeAutoUpdater(overrides = {}) {
   const handlers = new Map();
@@ -103,11 +112,11 @@ test('resolveUpdateFeedConfig resolves generic object-storage feeds for stable a
 
   const customTest = resolveUpdateFeedConfig({
     channel: 'test',
-    feedUrl: 'https://openmotion.powerformer.net/releases/desktop/test/',
+    feedUrl: `${TEST_STUDIO_ORIGIN}/releases/desktop/test/`,
   });
   assert.deepEqual(customTest, {
     provider: 'generic',
-    url: 'https://openmotion.powerformer.net/releases/desktop/test',
+    url: `${TEST_STUDIO_ORIGIN}/releases/desktop/test`,
     channel: 'test',
   });
 });
@@ -116,7 +125,7 @@ test('resolveUpdateFeedConfig and DesktopUpdaterController reject out-of-domain 
   const rejectedStableUrls = [
     'https://evil.example.com/open-motion/desktop/stable',
     'https://api.github.com/repos/nexu-io/openmotion/releases/latest',
-    'https://openmotion.powerformer.net/releases/desktop/stable',
+    `${TEST_STUDIO_ORIGIN}/releases/desktop/stable`,
     'https://releases.open-design.ai.evil.com/open-motion/desktop/stable',
     'http://releases.open-design.ai/open-motion/desktop/stable',
     'https://user:pass@releases.open-design.ai/open-motion/desktop/stable',
@@ -147,7 +156,7 @@ test('resolveUpdateFeedConfig and DesktopUpdaterController reject out-of-domain 
   for (const badTestUrl of [
     'https://evil.example.com/desktop/test',
     'https://github.com/nexu-io/openmotion/releases',
-    'http://openmotion.powerformer.net/desktop/test',
+    `http://${TEST_STUDIO_HOST}/desktop/test`,
   ]) {
     assert.throws(
       () => resolveUpdateFeedConfig({ channel: 'test', feedUrl: badTestUrl }),
@@ -734,10 +743,10 @@ test('DesktopUpdaterController enables allowPrerelease on test channel and disab
 
 test('notify-feishu-release builds signed Card 2.0 payload, respects includeMacX64, and validates hosts', async () => {
   assert.throws(() => validateFeishuWebhookUrl('https://evil.example.com/open-apis/bot/v2/hook/abc'));
-  assert.throws(() => validateFeishuWebhookUrl('http://open.feishu.cn/open-apis/bot/v2/hook/abc'));
+  assert.throws(() => validateFeishuWebhookUrl(HTTP_FEISHU_WEBHOOK_URL));
   assert.equal(
-    validateFeishuWebhookUrl('https://open.feishu.cn/open-apis/bot/v2/hook/test-hook-id'),
-    'https://open.feishu.cn/open-apis/bot/v2/hook/test-hook-id',
+    validateFeishuWebhookUrl(TEST_FEISHU_WEBHOOK_URL),
+    TEST_FEISHU_WEBHOOK_URL,
   );
 
   const fullPayload = buildDesktopReleaseCardPayload({
@@ -806,7 +815,7 @@ test('notify-feishu-release builds signed Card 2.0 payload, respects includeMacX
   );
 
   const result = await sendFeishuReleaseNotification({
-    webhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/test-hook-id',
+    webhookUrl: TEST_FEISHU_WEBHOOK_URL,
     channel: 'test',
     version: '0.2.2-test.2',
     fetchImpl: async () => new Response(JSON.stringify({ code: 0, msg: 'success' }), { status: 200 }),
@@ -965,10 +974,10 @@ test('desktop/config channel payloads pass bounds validation and desktop-signed-
 
 test('notify-feishu-release groups a structured changelog and links the previous version', async () => {
   assert.throws(() => validateFeishuWebhookUrl('https://evil.example.com/open-apis/bot/v2/hook/abc'));
-  assert.throws(() => validateFeishuWebhookUrl('http://open.feishu.cn/open-apis/bot/v2/hook/abc'));
+  assert.throws(() => validateFeishuWebhookUrl(HTTP_FEISHU_WEBHOOK_URL));
   assert.equal(
-    validateFeishuWebhookUrl('https://open.feishu.cn/open-apis/bot/v2/hook/test-hook-id'),
-    'https://open.feishu.cn/open-apis/bot/v2/hook/test-hook-id',
+    validateFeishuWebhookUrl(TEST_FEISHU_WEBHOOK_URL),
+    TEST_FEISHU_WEBHOOK_URL,
   );
 
   const payload = buildDesktopReleaseCardPayload({
@@ -1064,7 +1073,7 @@ test('notify-feishu-release groups a structured changelog and links the previous
   let postedUrl = '';
   let postedBody = null;
   const result = await sendFeishuReleaseNotification({
-    webhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/test-hook-id',
+    webhookUrl: TEST_FEISHU_WEBHOOK_URL,
     channel: 'test',
     version: '0.2.2-test.2',
     fetchImpl: async (url, init) => {
@@ -1074,13 +1083,13 @@ test('notify-feishu-release groups a structured changelog and links the previous
     },
   });
   assert.equal(result.ok, true);
-  assert.equal(postedUrl, 'https://open.feishu.cn/open-apis/bot/v2/hook/test-hook-id');
+  assert.equal(postedUrl, TEST_FEISHU_WEBHOOK_URL);
   assert.equal(postedBody.msg_type, 'interactive');
 
   await assert.rejects(
     () =>
       sendFeishuReleaseNotification({
-        webhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/test-hook-id',
+        webhookUrl: TEST_FEISHU_WEBHOOK_URL,
         channel: 'test',
         version: '0.2.2-test.2',
         fetchImpl: async () => new Response(JSON.stringify({ code: 19021, msg: 'sign match fail' }), { status: 200 }),

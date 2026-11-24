@@ -262,7 +262,7 @@ export function mountDesktopHandoffRoutes(
       redirectUri: c.req.query('redirect_uri'),
       state: c.req.query('state'),
     });
-    if (!validated.ok) {
+    if ('error' in validated) {
       return c.json({ code: 'INVALID_REQUEST', error: validated.error }, 400);
     }
 
@@ -351,7 +351,7 @@ export function mountDesktopHandoffRoutes(
     }
 
     const parsed = parseExchangeBody(rawJson);
-    if (!parsed.ok) {
+    if ('error' in parsed) {
       return c.json({ code: 'INVALID_REQUEST', error: parsed.error }, 400);
     }
 

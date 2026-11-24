@@ -722,7 +722,7 @@ describe('DesktopConnectPanel', () => {
         cursorConfigured = true;
         return hostOk({
           ruleId: 'cursor_mcp',
-          configPath: '/Users/test/.cursor/mcp.json',
+          configPath: '/opt/workspace/.cursor/mcp.json',
           changed: true,
         });
       }
