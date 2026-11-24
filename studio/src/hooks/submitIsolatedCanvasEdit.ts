@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import type { CompositionEdit } from "../../../packages/edit-core/commands";
-import { hasPeerLiveEdit, hasPeerTimingDocument, tryApplyPeerChanges } from "../player/peerTimingPreview";
+import { hasPeerLiveEdit, hasPeerTimingDocument, tryApplyPeerChanges, tryRefreshPeerScene } from "../player/peerTimingPreview";
 import { isPreviewChanging } from "../player/previewReloading";
 import { announcePreviewScenesSwapped } from "../player/sceneSwap";
 import { confirmedSource } from "../utils/confirmedTextSources";
@@ -25,4 +25,27 @@ export async function submitIsolatedCanvasEdit(
     if (previewApplied) announcePreviewScenesSwapped(frame);
   }
   return { ...result, previewApplied };
+}
+
+/** The write is already durable. Refreshing its scene must not hold the next edit's save queue. */
+export function refreshSavedCanvasPreview(
+  project: string, frameRef: RefObject<HTMLIFrameElement | null>, paths: string | readonly string[],
+  versions: Record<string, string> | undefined, reload: (paths: string | readonly string[]) => void,
+) {
+  const frame = frameRef.current;
+  const path = typeof paths === "string" ? paths : paths.length === 1 ? paths[0] : null;
+  const version = path && versions?.[path];
+  if (!frame || !path || path === "index.html" || !version) {
+    reload(paths);
+    return;
+  }
+  const current = () => {
+    const known = confirmedSource(project, path);
+    return frameRef.current === frame && frame.isConnected && (!known || known.version === version);
+  };
+  void tryRefreshPeerScene(frame, path, version, current).catch(() => false).then(applied => {
+    if (!current()) return;
+    if (applied) announcePreviewScenesSwapped(frame);
+    else reload(paths);
+  });
 }

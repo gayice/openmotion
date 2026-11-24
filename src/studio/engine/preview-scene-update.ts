@@ -1,10 +1,10 @@
-// The player owns the markup and scripts from which a parked scene will mount.
-// A DOM edit to the empty placeholder would be lost on the next seek.
-export const PREVIEW_PARKED_SCENE = `
-  function parkedHost(path) {
+// Reconcile one compiled child after direct element updates decline. The runtime
+// also owns the source from which this scene will mount on subsequent seeks.
+export const PREVIEW_SCENE_UPDATE = `
+  function uniqueSceneHost(path) {
     const hosts = Array.from(document.querySelectorAll('[data-hf-scene][data-composition-file]'))
       .filter(el => el.getAttribute('data-composition-file') === path);
-    return hosts.length === 1 && hosts[0].hasAttribute('data-hf-parked-scene') ? hosts[0] : null;
+    return hosts.length === 1 ? hosts[0] : null;
   }
 
   function sceneParts(doc) {
@@ -17,15 +17,16 @@ export const PREVIEW_PARKED_SCENE = `
       Object.keys(before).every(key => key === changed || before[key] === after[key]);
   }
 
-  async function refreshParkedScene(message) {
+  async function refreshPeerScene(message) {
     const { path, fileVersion: version, expiresAt } = message;
     if (compositionPath !== 'index.html' || message.documentId !== styleDocumentId ||
         typeof path !== 'string' || !Object.hasOwn(sourceVersions, path) || typeof version !== 'string' ||
         !Number.isFinite(expiresAt) || expiresAt <= Date.now() || typeof window.__hfSwapScenes !== 'function') return false;
-    const host = parkedHost(path), base = sourceVersions[path];
+    const host = uniqueSceneHost(path), base = sourceVersions[path];
     if (!host || !base) return false;
     const scene = host.getAttribute('data-hf-scene');
-    const current = () => parkedHost(path) === host && sourceVersions[path] === base &&
+    const parked = host.hasAttribute('data-hf-parked-scene');
+    const current = () => uniqueSceneHost(path) === host && host.hasAttribute('data-hf-parked-scene') === parked && sourceVersions[path] === base &&
       !drag && !pendingDrags.size && !inlineText && Date.now() < expiresAt;
     if (!current()) return false;
 
@@ -47,6 +48,7 @@ export const PREVIEW_PARKED_SCENE = `
         !sameOtherEntries(oldParts.scenes, newParts.scenes, scene) || !current()) return false;
 
     if (newParts.scenes[scene] !== oldParts.scenes[scene]) await window.__hfSwapScenes(html, signal);
+    if (sourceVersions[path] !== base) return false;
     confirmCanvasVersion(path, versions[path]);
     return true;
   }

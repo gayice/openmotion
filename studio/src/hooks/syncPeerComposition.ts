@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import { shareCompositionPosterRead, type KnownCompositionSource, MAX_POSTER_SOURCE_LENGTH } from "../player/lib/compositionPosterSource";
 import { beginPeerTimelineUpdate } from "../player/lib/peerTimeline";
-import { hasPeerLiveEdit, hasPeerTimingDocument, hasScriptedStylePreview, tryApplyPeerChanges, tryRefreshParkedPeerScene } from "../player/peerTimingPreview";
+import { hasPeerLiveEdit, hasPeerTimingDocument, hasScriptedStylePreview, tryApplyPeerChanges, tryRefreshPeerScene } from "../player/peerTimingPreview";
 import { isPreviewChanging } from "../player/previewReloading";
 import { announcePreviewScenesSwapped, notePeerPreviewChange, previewSourceRevision } from "../player/sceneSwap";
 import { usePlayerStore } from "../player/store/playerStore";
@@ -25,7 +25,7 @@ export function syncPeerComposition(
     !isPreviewChanging() && !isStudioEditSaving() && usePlayerStore.getState().timelineProjectId === projectId;
   return Promise.resolve(mounted).then(async handled => {
     if (handled) return true;
-    if (!await tryRefreshParkedPeerScene(frame, changed, changedVersion, current)) return false;
+    if (!await tryRefreshPeerScene(frame, changed, changedVersion, current)) return false;
     announcePreviewScenesSwapped(frame);
     return true;
   });

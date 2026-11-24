@@ -2,7 +2,7 @@ import { isolatedSourceVersion } from "../components/editor/isolatedSourceTarget
 import { observedSourceVersion } from "../utils/confirmedTextSources";
 import { isolatedEditVersion } from "../utils/isolatedEditVersions";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
-import { submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
+import { refreshSavedCanvasPreview, submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
 import type { SdkSessionHandle } from "./useSdkSession";
 import { useCallback, useRef } from "react";
 import { findUnsafeDomPatchValues } from "@hyperframes/core/studio-api/finite-mutation";
@@ -169,7 +169,7 @@ export function useDomEditPersist({
         if (changed) await editHistory.recordEdit({ ...history, files: {} });
         if (changed && !result.divergent.length) {
           forceReloadSdkSession?.({ projectId: pid, versions: result.versions });
-          if (!result.previewApplied) reloadPreview(targetPath);
+          if (!result.previewApplied) refreshSavedCanvasPreview(pid, previewIframeRef, targetPath, result.versions, reloadPreview);
         }
         return { sourceFile: targetPath, version: result.versions[targetPath], changed };
       }

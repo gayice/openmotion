@@ -1,4 +1,4 @@
-import { submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
+import { refreshSavedCanvasPreview, submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
 import type { SdkSessionHandle } from "./useSdkSession";
 import { cloudHistoryForWrite } from "../utils/studioFileHistory";
 import { buildProjectApiPath } from "../utils/projectRouting";
@@ -234,7 +234,7 @@ export function useDomEditCommits({
           const skipSafe =
             options.skipReload === true && batchesAreInlineStyleOnly(batches) && durable;
           if (!durable) reloadPreview();
-          else if (changed && !skipSafe && !previewApplied) reloadPreview(changedPaths);
+          else if (changed && !skipSafe && !previewApplied) refreshSavedCanvasPreview(pid, previewIframeRef, changedPaths, savedVersions, reloadPreview);
           const savedCanvasVersion = batches.length === 1 ? savedVersions?.[batches[0]!.sourceFile] : undefined;
           return { durable, allMatched, changed, ...(savedCanvasVersion && { savedCanvasVersion }) };
         },

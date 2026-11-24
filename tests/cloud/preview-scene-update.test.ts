@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { parseHTMLContent } from '@hyperframes/core/compiler';
 import { PREVIEW_SOURCE_IDENTITY } from '../../src/studio/engine/preview-bridge.ts';
 import { bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
-import { PREVIEW_PARKED_SCENE } from '../../src/studio/engine/preview-parked-scene.ts';
+import { PREVIEW_SCENE_UPDATE } from '../../src/studio/engine/preview-scene-update.ts';
 import { InMemoryVirtualProject } from '../../src/studio/virtual-project-store.ts';
 
 const file = 'compositions/intro.html';
@@ -30,7 +30,7 @@ function fixture() {
   const counts = { reads: 0, swaps: 0, confirms: 0 };
   const request = { documentId: 'frame-1', path: file, fileVersion: version, expiresAt: Date.now() + 3000 };
   let duringRead = () => {};
-  const refresh = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_PARKED_SCENE + '\nrefreshParkedScene;', {
+  const refresh = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_SCENE_UPDATE + '\nrefreshPeerScene;', {
     settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: { ...oldVersions }, projectId: 'p',
     document, location: {href: 'https://preview.example/current'}, AbortSignal,
     drag: null, pendingDrags: new Map(), inlineText: null,
@@ -53,16 +53,23 @@ it('updates the parked template through the runtime only after validating the fr
   assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 1});
 });
 
-it('leaves mounted, missing, repeated and remounting targets to normal preview recovery', async () => {
-  for (const state of ['mounted', 'missing', 'duplicate', 'remounting']) {
+it('uses the runtime to update both a mounted scene and its next mount', async () => {
+  const f = fixture();
+  f.document.querySelector('section')!.removeAttribute('data-hf-parked-scene');
+  assert.equal(await f.run(), true);
+  assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 1});
+});
+
+it('does not swap missing, repeated or remounting targets', async () => {
+  for (const state of ['missing', 'duplicate', 'remounting', 'mount-state-changed']) {
     const f = fixture();
     const host = f.document.querySelector('section')!;
-    if (state === 'mounted') host.removeAttribute('data-hf-parked-scene');
+    if (state === 'mount-state-changed') f.onRead(() => host.removeAttribute('data-hf-parked-scene'));
     if (state === 'missing') host.remove();
     if (state === 'duplicate') host.after(host.cloneNode(true));
     if (state === 'remounting') f.onRead(() => host.replaceWith(host.cloneNode(true)));
     assert.equal(await f.run(), false, state);
-    assert.deepEqual(f.counts, {reads: state === 'remounting' ? 1 : 0, swaps: 0, confirms: 0});
+    assert.deepEqual(f.counts, {reads: ['remounting', 'mount-state-changed'].includes(state) ? 1 : 0, swaps: 0, confirms: 0});
   }
 });
 
