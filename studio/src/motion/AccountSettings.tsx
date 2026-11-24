@@ -11,8 +11,14 @@ import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { gatewayRequest, type CloudApiError } from './gatewayClient';
 import { notifyProvidersChanged } from './useProviderDirectory';
+import { clearPrivateSwrCache } from './swrCache';
 import { activeAccountOffer, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
+import {
+  isDesktopApp,
+  openBillingAndRefreshOnFocus,
+  startDesktopBrowserLogin,
+} from '../utils/platformHost';
 
 export interface CloudWorkspaceSummary {
   id: string;
@@ -276,8 +282,15 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   function subscriptionLink(source: string, element: 'manage_subscription' | 'view_plans') {
     const consoleUrl = state.account!.consoleUrl;
     const open = (event: MouseEvent<HTMLAnchorElement>) => {
-      if (event.detail === 0 && event.button === 0) event.currentTarget.href = subscriptionUrl(consoleUrl, source);
+      const targetUrl = subscriptionUrl(consoleUrl, source);
+      if (event.detail === 0 && event.button === 0) event.currentTarget.href = targetUrl;
       tracking.reportSettingsClick('account', element);
+      if (isDesktopApp() && (event.button === 0 || event.button === 1)) {
+        event.preventDefault();
+        void openBillingAndRefreshOnFocus(targetUrl, () => {
+          void state.refresh(true);
+        });
+      }
     };
     return {
       href: subscriptionUrl(consoleUrl, source),
@@ -291,7 +304,16 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
 
   function signInWithOidc() {
     tracking.reportSettingsClick('account', 'sign_in');
-    window.location.assign(buildLoginUrl());
+    const loginUrl = buildLoginUrl();
+    if (isDesktopApp()) {
+      void startDesktopBrowserLogin({ loginUrl }).then(result => {
+        if (!result.ok) {
+          toast.showToast(result.error || t('Could not start sign-in'), 'error', 'feedback');
+        }
+      });
+      return;
+    }
+    window.location.assign(loginUrl);
   }
 
   async function signOut() {
@@ -301,6 +323,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       const data = await response.json().catch(() => ({})) as { ok?: boolean; endSessionUrl?: string };
       if (!response.ok) throw new Error(t('Could not sign out'));
+      clearPrivateSwrCache();
       state.setAccount({ state: 'signed-out', consoleUrl: account?.consoleUrl || DEFAULT_CONSOLE_URL, authMode: account?.authMode ?? 'oidc' });
       setTokens(null);
       setCreatedToken(null);
@@ -699,6 +722,18 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                   {t('Manage subscription')}<RemixIcon name="external-link-line" size={15} />
                 </a>
               </div>
+              {isDesktopApp() && (
+                <p className="om-muted" data-desktop-billing-hint="true">
+                  {account.user?.email
+                    ? t(
+                        'Opens in your browser. Verify you are signed in as {account}, then click Refresh when you return.',
+                        { account: account.user.email },
+                      )
+                    : t(
+                        'Opens in your browser. Verify you are signed into the same account there, then click Refresh when you return.',
+                      )}
+                </p>
+              )}
             </section>
           )}
 
@@ -747,9 +782,23 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
               </div>
             )}
             {signedIn && !upgradeGuide && (
-              <a className="om-button" {...subscriptionLink('openmotion_manage_subscription', 'manage_subscription')}>
-                {t('Manage subscription')}<RemixIcon name="external-link-line" size={15} />
-              </a>
+              <>
+                <a className="om-button" {...subscriptionLink('openmotion_manage_subscription', 'manage_subscription')}>
+                  {t('Manage subscription')}<RemixIcon name="external-link-line" size={15} />
+                </a>
+                {isDesktopApp() && (
+                  <p className="om-muted" data-desktop-billing-hint="true">
+                    {account.user?.email
+                      ? t(
+                          'Opens in your browser. Verify you are signed in as {account}, then click Refresh when you return.',
+                          { account: account.user.email },
+                        )
+                      : t(
+                          'Opens in your browser. Verify you are signed into the same account there, then click Refresh when you return.',
+                        )}
+                  </p>
+                )}
+              </>
             )}
           </section>
 

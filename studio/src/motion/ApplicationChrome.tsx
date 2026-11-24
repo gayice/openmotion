@@ -8,8 +8,11 @@ import { Menu, MenuItem, MenuSeparator, MenuSubmenu, MenuRadioGroup, MenuRadioIt
 import { Tooltip } from '../components/ui/Tooltip';
 import { languages, useI18n, type Locale } from '../i18n/I18n';
 import { setStudioTheme, useStudioThemePreference } from '../utils/studioTheme';
+import { getDesktopHostBridge, isDesktopApp, startDesktopBrowserLogin, useDesktopChrome } from '../utils/platformHost';
+import { HOST_CAPABILITIES } from '../../../shared/desktop-contract';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { buildLoginUrl, useAccountSummary } from './AccountSettings';
+import { clearPrivateSwrCache } from './swrCache';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { GitHubLink } from './GitHubLink';
@@ -41,12 +44,16 @@ export function ApplicationHeader({ settings, atExploreHome, onSkill, openAsset,
   const { openAssets, openHome } = useWorkspaceChrome();
   const homeHint = atExploreHome ? undefined : t('Back to Explore');
   const header = useRef<HTMLElement>(null);
+  const desktopChrome = useDesktopChrome();
+  const desktopBridge = getDesktopHostBridge();
   const [compactActions, setCompactActions] = useState(false);
+  const desktopInsetTotal = desktopChrome ? desktopChrome.insetLeft + desktopChrome.insetRight : 0;
+  const compactActionThreshold = desktopInsetTotal > 0 ? 640 : 560;
   useLayoutEffect(() => {
-    const observer = new ResizeObserver(([entry]) => setCompactActions(entry.contentRect.width <= 560));
+    const observer = new ResizeObserver(([entry]) => setCompactActions(entry.contentRect.width <= compactActionThreshold));
     observer.observe(header.current!);
     return () => observer.disconnect();
-  }, []);
+  }, [compactActionThreshold]);
 
   function workspaceActions(closeMenu?: () => void) {
     return <>
@@ -63,6 +70,34 @@ export function ApplicationHeader({ settings, atExploreHome, onSkill, openAsset,
       <div className="om-app-header-links"><CommunityLink /><GitHubLink /></div>
       <PricingEntry trackingPage={navigation.trackingPage} />
       <ApplicationAccountMenu settings={settings} openSettings={openSettings} />
+      {desktopChrome?.customWindowControls && desktopBridge && (
+        <div className="om-desktop-window-controls" role="group" aria-label={t('Window controls')}>
+          <IconButton
+            variant="plain"
+            type="button"
+            className="om-nav-item"
+            aria-label={t('Minimize window')}
+            onClick={() => void desktopBridge.invoke(HOST_CAPABILITIES.WINDOW, 'minimize')}
+            icon={<RemixIcon name="subtract-line" size={14} />}
+          />
+          <IconButton
+            variant="plain"
+            type="button"
+            className="om-nav-item"
+            aria-label={t(desktopChrome.maximized ? 'Restore window' : 'Maximize window')}
+            onClick={() => void desktopBridge.invoke(HOST_CAPABILITIES.WINDOW, 'toggleMaximize')}
+            icon={<RemixIcon name={desktopChrome.maximized ? 'checkbox-multiple-blank-line' : 'checkbox-blank-line'} size={13} />}
+          />
+          <IconButton
+            variant="plain"
+            type="button"
+            className="om-nav-item om-desktop-window-close"
+            aria-label={t('Close window')}
+            onClick={() => void desktopBridge.invoke(HOST_CAPABILITIES.WINDOW, 'close')}
+            icon={<RemixIcon name="close-line" size={14} />}
+          />
+        </div>
+      )}
     </div>
   </header>;
 }
@@ -103,6 +138,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
     try {
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       const data = await response.json().catch(() => ({})) as { endSessionUrl?: string };
+      clearPrivateSwrCache();
       window.dispatchEvent(new Event('motion:account-changed'));
       if (data.endSessionUrl) window.location.assign(data.endSessionUrl);
     } catch {
@@ -204,7 +240,16 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
               <span className="om-menu-label"><RemixIcon name="login-box-line" mirrored size={16} />{t('Sign out')}</span>
             </MenuItem>
           ) : (
-            <MenuItem onClick={() => window.location.assign(buildLoginUrl())}>
+            <MenuItem
+              onClick={() => {
+                const loginUrl = buildLoginUrl();
+                if (isDesktopApp()) {
+                  void startDesktopBrowserLogin({ loginUrl });
+                  return;
+                }
+                window.location.assign(loginUrl);
+              }}
+            >
               <span className="om-menu-label"><RemixIcon name="login-box-line" size={16} />{t('Sign in with OpenDesign')}</span>
             </MenuItem>
           )}

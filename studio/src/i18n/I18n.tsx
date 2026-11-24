@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ensureLocaleLoaded, isLocale, isLocaleLoaded, languages, translate, type Locale, type MessageValues } from './messages';
 import { pageMetadata } from '../../../packages/design-system/metadata.js';
+import { syncDesktopLocale } from '../utils/platformHost';
 export { languages, isLocale, isLocaleLoaded, ensureLocaleLoaded, translate, sourceMessage } from './messages';
 export type { Locale, MessageValues, Translate } from './messages';
 export const LOCALE_STORAGE_KEY = 'motion.studio.locale';
@@ -79,6 +80,7 @@ export function I18nProvider({ children, initialLocale }: { children: ReactNode;
 
   useEffect(() => {
     document.documentElement.lang = locale;
+    syncDesktopLocale(locale);
     const metadata = pageMetadata(locale);
     document.title = metadata.title;
     for (const attribute of ['name', 'property'] as const) {
