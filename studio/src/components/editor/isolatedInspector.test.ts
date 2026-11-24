@@ -112,3 +112,8 @@ it("computes layer drag patches with the native z resolver and refuses a locked 
   family[0].locked = true;
   expect(planIsolatedLayerReorder(family, ["c","b","a"], 2, 0)).toBeNull();
 });
+
+it("returns the timed clip owning a selected descendant", async () => {
+  const selected = await inspect('<main><div id="card" data-hf-id="hf-card" class="clip"><span id="title">Name</span></div></main>', { elementId: "title" });
+  expect(selected?.isolatedClipOwner).toEqual({ id: "card", hfId: "hf-card", sourceFile: "index.html" });
+});

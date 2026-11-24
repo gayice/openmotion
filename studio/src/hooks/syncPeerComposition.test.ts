@@ -54,7 +54,7 @@ it("recovers the exact mounted child revision only after a cold peer observes an
   state.beginTimelineSession("p");
   const frame = document.createElement("iframe");
   const path = "child.html", hash = "a".repeat(64), version = `"patch:${hash}"`;
-  rememberPeerTimingDocument(frame, "token", undefined, "document", { position: true }, { [path]: version });
+  rememberPeerTimingDocument(frame, "token", undefined, "document", { position: true }, false, { [path]: version });
   // A revision that has already been removed from history takes the regular document refresh.
   const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response("gone", { status: 404 }));
   vi.stubGlobal("fetch", fetch);

@@ -26,6 +26,7 @@ export type PreviewBridgeMessageType =
   | "timeline-controls"
   | "timeline-state"
   | "playback-control"
+  | "refresh-parked-scene"
   | "peer-timing"
   | "peer-presentation"
   | "layer-tree"
