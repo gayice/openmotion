@@ -32,7 +32,7 @@ it('keeps ordered scene scripts, styles and font declarations while omitting the
   assert.equal(previewSceneFragment(compile(host + host), [file]), null);
 });
 
-function fixture() {
+function fixture({ firstSceneOnly = false, contentType = 'text/plain' } = {}) {
   const document = parseHTMLContent(`<html><head></head><body>${parked}</body></html>`);
   const meta = document.createElement('meta');
   meta.setAttribute('name', 'hf-scene-parts');
@@ -41,7 +41,10 @@ function fixture() {
   const settings = {projectId: 'p', compositionPath: 'index.html'};
   const fresh = { ...settings, sourceVersions: { ...oldVersions, [file]: after }};
   const nextParts = parts('new intro');
-  const templ = () => `<html><head><meta name="hf-scene-parts" content='${JSON.stringify(nextParts)}'></head><body><script data-openmotion-preview='${JSON.stringify(fresh)}'></script></body></html>`;
+  const templ = (files: string[]) => {
+    const hosts = files.map(path => `<section data-composition-file="${path}" data-hf-scene="${path === file ? 'intro' : 'outro'}"></section>`);
+    return `<html><head><meta name="hf-scene-parts" content='${JSON.stringify(nextParts)}'></head><body><script data-openmotion-preview='${JSON.stringify(fresh)}'></script>${hosts.join('')}</body></html>`;
+  };
   const counts = { reads: 0, swaps: 0, confirms: 0 };
   const live: Record<string, string> = { ...oldVersions };
   const request = { documentId: 'frame-1', path: file, fileVersion: version, expiresAt: Date.now() + 3000 };
@@ -56,10 +59,11 @@ function fixture() {
     fetch: async (url: string) => {
       const target = new URL(url);
       assert.equal(target.searchParams.get('pt'), 'test');
-      requestedFiles.push(target.searchParams.getAll('sceneFile'));
+      const files = target.searchParams.getAll('sceneFile');
+      requestedFiles.push(files);
       counts.reads++;
       duringRead();
-      return new Response(templ());
+      return new Response(templ(firstSceneOnly ? files.slice(0, 1) : files), {headers: {'Content-Type': contentType}});
     },
     window: { __hfSwapScenes: async (html: string) => { assert.ok(html.includes('hf-scene-parts')); counts.swaps++; } },
     confirmCanvasVersion: (path: string, value: string) => { confirmed[path] = value; live[path] = value; counts.confirms++; },
@@ -89,6 +93,21 @@ it('requires every changed scene to have a matching receipt before the one runti
     assert.deepEqual(f.requestedFiles, [[file, other]]);
     assert.deepEqual(f.counts, {reads: 1, swaps: valid ? 1 : 0, confirms: valid ? 2 : 0});
     assert.deepEqual(f.confirmed, valid ? {[file]: after, [other]: second} : {});
+  }
+});
+
+it('keeps the displayed document if an older API returns only one requested scene or the full page', async () => {
+  for (const options of [{ firstSceneOnly: true }, { contentType: 'text/html' }]) {
+    const f = fixture(options);
+    const host = f.document.createElement('section');
+    host.setAttribute('data-composition-file', other);
+    host.setAttribute('data-hf-scene', 'outro');
+    f.document.body.append(host);
+    const second = digest('fresh outro');
+    f.fresh.sourceVersions[other] = second;
+    f.nextParts.scenes.outro = 'new outro';
+    assert.equal(await f.run({[file]: version, [other]: `"sha256:${second}"`}), false);
+    assert.deepEqual(f.counts, {reads: 1, swaps: 0, confirms: 0});
   }
 });
 

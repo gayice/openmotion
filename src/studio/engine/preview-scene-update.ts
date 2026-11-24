@@ -52,8 +52,8 @@ export const PREVIEW_SCENE_UPDATE = `
     return canvasDrag(message);
   }
 
-  function uniqueSceneHost(path) {
-    const hosts = Array.from(document.querySelectorAll('[data-hf-scene][data-composition-file]'))
+  function uniqueSceneHost(path, root = document) {
+    const hosts = Array.from(root.querySelectorAll('[data-hf-scene][data-composition-file]'))
       .filter(el => el.getAttribute('data-composition-file') === path);
     return hosts.length === 1 ? hosts[0] : null;
   }
@@ -103,11 +103,14 @@ export const PREVIEW_SCENE_UPDATE = `
     const signal = AbortSignal.timeout(Math.min(5000, expiresAt - Date.now()));
     const url = new URL(location.href);
     url.searchParams.delete('sceneFile');
-    for (const path of paths) if (!previous?.files.has(path)) url.searchParams.append('sceneFile', path);
+    const requested = targets.filter(({path}) => !previous?.files.has(path));
+    for (const {path} of requested) url.searchParams.append('sceneFile', path);
     const response = await fetch(url.href, { cache: 'no-cache', redirect: 'error', signal });
-    if (!response.ok) return false;
+    if (!response.ok || !response.headers.get('Content-Type')?.startsWith('text/plain')) return false;
     let html = await response.text();
     const next = new DOMParser().parseFromString(html, 'text/html');
+    // An older API may return only the first requested child during a rolling update.
+    if (!requested.every(({path, scene}) => uniqueSceneHost(path, next)?.getAttribute('data-hf-scene') === scene)) return false;
     const bridges = next.querySelectorAll('script[data-openmotion-preview]');
     if (bridges.length !== 1) return false;
     const config = bridges[0].getAttribute('data-openmotion-preview');
