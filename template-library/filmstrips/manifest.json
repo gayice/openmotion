@@ -41,6 +41,16 @@
       "frameHeight": 90,
       "aspect": 1.7778
     },
+    "8c3b6053d7331bc245602b363527b9c9a0c724b312ba5edaadf7dd56d8e519c8": {
+      "templateId": "product-promo",
+      "path": "compositions/scene1-logo-intro.html",
+      "file": "product-promo/scene1-logo-intro.jpg",
+      "depsSha256": "882230b7c088b6658d94aab6da2afc6d08a98bc49a782b4e5fbd0995a7619019",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
     "983fe8533b5d6ef321af491b7a9ab6eedb381e775abf2304ab7e20956563f5d7": {
       "templateId": "openmotion-welcome",
       "path": "compositions/editor.html",
@@ -76,16 +86,6 @@
       "path": "compositions/outro.html",
       "file": "openmotion-welcome/outro.jpg",
       "depsSha256": "3c6c8a0ffe82f530b2a275e0275ca4138c02baba0656c53a48511ca48a25290a",
-      "frameCount": 8,
-      "frameWidth": 160,
-      "frameHeight": 90,
-      "aspect": 1.7778
-    },
-    "beb49d57f541cfb71582b3e9031b70d5bf42f3f5a0863829024abd0173e35e71": {
-      "templateId": "product-promo",
-      "path": "compositions/scene1-logo-intro.html",
-      "file": "product-promo/scene1-logo-intro.jpg",
-      "depsSha256": "882230b7c088b6658d94aab6da2afc6d08a98bc49a782b4e5fbd0995a7619019",
       "frameCount": 8,
       "frameWidth": 160,
       "frameHeight": 90,
