@@ -201,7 +201,7 @@ export function createStudioCompositionFilmstripsRoutes(
       if (identity.allDepsCatalog) {
         const catalogKey = assertTenantScopedKey(
           workspaceId,
-          catalogCompFilmstripKey(identity.fileSha),
+          catalogCompFilmstripKey(identity.fileSha, identity.depsSha256),
           { allowCatalog: true },
         );
         const catalogHit = await readValidatedS3Filmstrip(deps, catalogKey);
@@ -367,7 +367,7 @@ export function createStudioCompositionFilmstripsRoutes(
       if (allDepsCatalog) {
         const catalogKey = assertTenantScopedKey(
           auth.workspaceId,
-          catalogCompFilmstripKey(fileSha),
+          catalogCompFilmstripKey(fileSha, depsSha256),
           { allowCatalog: true },
         );
         const catalogHit = await readValidatedS3Filmstrip(deps, catalogKey);

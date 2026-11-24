@@ -44,6 +44,10 @@ import {
   buildRenderSubprocessEnv,
   injectStudioRenderParityIntoHydratedDir,
 } from './render-env.ts';
+import {
+  processBakeCatalogFilmstripsJob,
+  type BakeCatalogFilmstripsDeps,
+} from './catalog-filmstrip-bake.ts';
 
 const HYDRATION_CONCURRENCY = 8;
 const HYDRATION_LARGE_FILE_BYTES = 10 * 1024 * 1024;
@@ -179,6 +183,9 @@ export interface RenderExportDeps {
   readonly tmpBaseDir?: string;
   readonly concurrency?: number;
   readonly sourceEnv?: NodeJS.ProcessEnv;
+  readonly bakeState?: BakeCatalogFilmstripsDeps['bakeState'];
+  readonly fetchImpl?: typeof fetch;
+  readonly renderCatalogCompositionsFn?: BakeCatalogFilmstripsDeps['renderCompositionsFn'];
   readonly runRenderCommand?: (
     runtimeRoot: string,
     projectDir: string,
@@ -1189,6 +1196,19 @@ export async function processRenderExportQueueJob<K extends RenderExportJobName>
   }
   if (name === 'render_thumbnail') {
     return processRenderThumbnailJob(deps, payload as RenderExportPayloadMap['render_thumbnail']);
+  }
+  if (name === 'bake_catalog_filmstrips') {
+    return processBakeCatalogFilmstripsJob(
+      {
+        storage: deps.storage,
+        logger: deps.logger,
+        bakeState: deps.bakeState,
+        runtimeRoot: deps.runtimeRoot,
+        fetchImpl: deps.fetchImpl,
+        renderCompositionsFn: deps.renderCatalogCompositionsFn,
+      },
+      payload as RenderExportPayloadMap['bake_catalog_filmstrips'],
+    );
   }
   throw new Error(`Unknown render-export job: ${String(name)}`);
 }

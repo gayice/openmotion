@@ -22,6 +22,7 @@ import {
 import { RedisEventBus, createRedisClient } from '../infra/redis.ts';
 import { ShutdownCoordinator } from '../infra/shutdown.ts';
 import { StorageService } from '../infra/storage.ts';
+import { RedisCatalogFilmstripBakeState } from '../services/catalog-filmstrip-autobake.ts';
 import { processBlobGcJob } from './blob-gc.ts';
 import {
   processMediaGenerateJob,
@@ -302,6 +303,8 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
   });
 
   const renderConn = createRedisClient(config.REDIS_URL, 'bullmq');
+  const bakeStateConn = createRedisClient(config.REDIS_URL, 'command');
+  const bakeState = new RedisCatalogFilmstripBakeState(bakeStateConn);
   let activeJobs = 0;
 
   const renderWorker = new Worker(
@@ -321,6 +324,7 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
             logger: logger.child({ queue: QUEUE_NAMES.renderExport, bullJobId: job.id, jobName: name }),
             workerId,
             concurrency,
+            bakeState,
           },
           name,
           validated,
@@ -355,7 +359,7 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
   // Register LIFO drain hooks:
   // 1) Stop heartbeat -> 2) Drain active render cleanly via renderWorker.close() -> 3) Quit Redis.
   shutdown.register('bullmq-render-connection', async () => {
-    await renderConn.quit();
+    await Promise.allSettled([renderConn.quit(), bakeStateConn.quit()]);
   });
   shutdown.register('bullmq-render-worker', async () => {
     await renderWorker.close();
