@@ -1256,11 +1256,21 @@ const CONNECTIVITY_REFERENCE_URL = `${DEFAULT_SIGNED_CONFIG_BASE_URL}/${
   releaseChannel === 'stable' ? 'stable' : 'test'
 }.json`;
 let startupOutcomeRecorded = false;
+let startupDidFinishLoadFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+const STARTUP_DID_FINISH_LOAD_FALLBACK_MS = 2_000;
+
+function clearStartupDidFinishLoadFallback(): void {
+  if (startupDidFinishLoadFallbackTimer) {
+    clearTimeout(startupDidFinishLoadFallbackTimer);
+    startupDidFinishLoadFallbackTimer = null;
+  }
+}
 
 function recordStartupPerformanceTransaction(
   outcome: 'ok' | 'timeout' | 'network_error' | 'error',
   finishedAt: number,
   errorCode?: string,
+  stage?: 'renderer_ready' | 'did_finish_load',
 ): void {
   const spans: Array<{
     op: string;
@@ -1304,7 +1314,7 @@ function recordStartupPerformanceTransaction(
     }
     spans.push({
       op: 'studio.load',
-      description: outcome === 'ok' ? 'Studio load to rendererReady' : `Studio load failed (${errorCode ?? outcome})`,
+      description: outcome === 'ok' ? 'Studio load to ready' : `Studio load failed (${errorCode ?? outcome})`,
       startMs: studioLoadStartedAt,
       endMs: finishedAt,
       status: outcome === 'ok' ? 'ok' : outcome === 'timeout' ? 'deadline_exceeded' : 'internal_error',
@@ -1319,6 +1329,7 @@ function recordStartupPerformanceTransaction(
     status: outcome === 'ok' ? 'ok' : outcome === 'timeout' ? 'deadline_exceeded' : 'internal_error',
     tags: {
       outcome,
+      ...(stage ? { startup_stage: stage } : {}),
       ...(errorCode ? { error_code: errorCode } : {}),
     },
     measurements: {
@@ -1328,11 +1339,31 @@ function recordStartupPerformanceTransaction(
   });
 }
 
+function recordStartupSuccess(finishedAt: number, stage: 'renderer_ready' | 'did_finish_load'): void {
+  clearStartupDidFinishLoadFallback();
+  if (startupOutcomeRecorded) return;
+  startupOutcomeRecorded = true;
+  const durationMs = Math.max(0, finishedAt - appStartupStartedAt);
+  telemetry.record({
+    category: 'app.startup',
+    outcome: 'ok',
+    durationMs,
+  });
+  desktopSentry.addBreadcrumb({
+    category: 'lifecycle',
+    message: stage === 'renderer_ready' ? 'Renderer ready' : 'Studio finished loading',
+    data: { startupDurationMs: durationMs, stage },
+  });
+  recordStartupPerformanceTransaction('ok', finishedAt, undefined, stage);
+  void desktopSentry.flushOutbox();
+}
+
 /**
  * Reports a failed Studio load. The retry page is shown exactly when in-page
  * reporting cannot run, so this is the only signal such a failure produces.
  */
 function reportLoadFailure(info: { code?: string; detail?: string; incidentId: string }): void {
+  clearStartupDidFinishLoadFallback();
   const code = info.code ?? 'UNKNOWN';
   const failure = classifyLoadFailure(info.code);
   const nowMs = Date.now();
@@ -1569,22 +1600,7 @@ function registerCapabilities(): void {
     openExternalSafe,
     onRendererReady: () => {
       clearStartupLoadWatchdog();
-      const readyAt = Date.now();
-      if (!startupOutcomeRecorded) {
-        startupOutcomeRecorded = true;
-        const durationMs = readyAt - appStartupStartedAt;
-        telemetry.record({
-          category: "app.startup",
-          outcome: "ok",
-          durationMs,
-        });
-        desktopSentry.addBreadcrumb({
-          category: 'lifecycle',
-          message: 'Renderer ready',
-          data: { startupDurationMs: durationMs },
-        });
-        recordStartupPerformanceTransaction('ok', readyAt);
-      }
+      recordStartupSuccess(Date.now(), 'renderer_ready');
       // Studio is up, so the network path works: deliver anything still queued.
       void desktopSentry.flushOutbox();
       rendererReady = true;
@@ -1890,6 +1906,15 @@ function createMainWindow(): BrowserWindow {
     void syncEnvironmentBadge(win);
     if (!showingRetryPage) {
       scheduleBootOverlayDismiss(220);
+      if (!startupOutcomeRecorded && !startupDidFinishLoadFallbackTimer) {
+        const finishedAt = didFinishLoadAt ?? Date.now();
+        startupDidFinishLoadFallbackTimer = setTimeout(() => {
+          startupDidFinishLoadFallbackTimer = null;
+          if (!shuttingDown && !showingRetryPage && !startupOutcomeRecorded) {
+            recordStartupSuccess(finishedAt, 'did_finish_load');
+          }
+        }, STARTUP_DID_FINISH_LOAD_FALLBACK_MS);
+      }
     }
   });
   win.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
@@ -2383,6 +2408,7 @@ app.on('before-quit', event => {
   closeEnvironmentSwitcherWindow();
   dismissBootOverlay({ immediate: true });
   clearStartupLoadWatchdog();
+  clearStartupDidFinishLoadFallback();
   clearUnresponsiveTimer();
   wakeLockManager.releaseAll();
   progressCoordinator.clearAll();
