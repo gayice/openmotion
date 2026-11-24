@@ -115,7 +115,7 @@ export const PREVIEW_PEER_TIMING = `
       confirmCanvasVersion(m.path, after);
       return true;
     }
-    const edits = [], effects = [];
+    const edits = [], effects = [], placements = [];
     let structureChanged = false;
     for (const change of m.changes) {
       if (!change || (!change.hfId && !change.id && !change.compositionId) || !Array.isArray(change.attributes) ||
@@ -145,6 +145,7 @@ export const PREVIEW_PEER_TIMING = `
       }
       if (media && change.tag !== 'audio' && node !== document.querySelector('[data-composition-id]')) return false;
       if (!stagePresentation(node, change, effects, local, pending)) return false;
+      if (position && !temporary) placements.push([node, selector, change]);
       for (const [name, from, to] of change.attributes) {
         if (!previewAttributes.has(name) || [from, to].some(value => !canPatchPreviewAttribute(name, value, node.localName))) return false;
         const preserved = name === 'data-duration' || name === 'data-end' ? name.replace('data-','data-hf-authored-') : null;
@@ -179,6 +180,8 @@ export const PREVIEW_PEER_TIMING = `
     }
     // Only a complete rebind advances the revision used for future edits and selections.
     if (!temporary) {
+      if (m.path !== compositionPath) advanceScenePlacements(m.path, before, after);
+      for (const [node, selector, change] of placements) rememberScenePlacement(node, m.path, selector, change, after);
       if (ownDrag) pending.verifiedVersion = after;
       confirmCanvasVersion(m.path, after);
     }
