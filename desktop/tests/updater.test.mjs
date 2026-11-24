@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_UPDATE_BASE_URL } from '../../shared/desktop-builtin-rules.ts';
 import { validateSignedConfigPayloadBounds } from '../../shared/signed-config.ts';
 import { generateEd25519KeyPair } from '../../packages/signed-config/index.ts';
-import { resolveBuildTrustAnchors } from '../scripts/build.mjs';
+import { injectBundleDebugId, resolveBuildTrustAnchors } from '../scripts/build.mjs';
 import {
   buildDesktopReleaseCardPayload,
   formatStructuredReleaseChangelog,
@@ -442,6 +443,10 @@ test('.github/workflows/desktop-release.yml enforces main-only per-arch builds w
     assert.equal(workflowYml.split(`          ${name}:`).length - 1, 2, `${name} must be set on both packaging steps`);
   }
   assert.match(workflowYml, /SENTRY_DESKTOP_DSN: \$\{\{ secrets\.SENTRY_DESKTOP_DSN \}\}/);
+  assert.match(workflowYml, /sourcemaps upload/);
+  assert.match(workflowYml, /--url-prefix "app:\/\/\/dist"/);
+  const builderYml = readFileSync(path.join(desktopRoot, 'electron-builder.yml'), 'utf8');
+  assert.match(builderYml, /"!dist\/\*\*\/\*\.map"/);
   assert.match(workflowYml, /'packages\/design-system\/brand\/\*\*'/);
   assert.match(workflowYml, /'\.github\/workflows\/desktop-release\.yml'/);
   assert.match(workflowYml, /workflow_dispatch:/);
@@ -867,6 +872,28 @@ test('resolveBuildTrustAnchors embeds a validated Sentry DSN and can require one
     resolveBuildTrustAnchors({ OPENMOTION_DESKTOP_REQUIRE_SENTRY_DSN: '1', SENTRY_DESKTOP_DSN: dsn }).sentryDsn,
     dsn,
   );
+});
+
+test('injectBundleDebugId embeds deterministic TC39/Sentry Debug IDs into JS and .map files', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'om-debug-id-'));
+  try {
+    const jsPath = path.join(dir, 'main.mjs');
+    const mapPath = `${jsPath}.map`;
+    writeFileSync(jsPath, 'console.log("hello");\n', 'utf8');
+    writeFileSync(mapPath, JSON.stringify({ version: 3, sources: ['src/main.ts'], mappings: '' }), 'utf8');
+    const debugId = injectBundleDebugId(jsPath, mapPath);
+    assert.match(debugId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    const jsAfter = readFileSync(jsPath, 'utf8');
+    const mapAfter = JSON.parse(readFileSync(mapPath, 'utf8'));
+    assert.equal(mapAfter.debugId, debugId);
+    assert.ok(jsAfter.includes(`//# debugId=${debugId}`));
+    assert.ok(jsAfter.includes('_sentryDebugIds'));
+    assert.equal(jsAfter.includes('sourceMappingURL='), false);
+    // Idempotent on re-run
+    assert.equal(injectBundleDebugId(jsPath, mapPath), debugId);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('resolveBuildTrustAnchors validates and normalizes Ed25519 root key, Apple Team ID, and Windows thumbprints', () => {

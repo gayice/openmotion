@@ -1,5 +1,5 @@
-import { createPublicKey } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { createHash, createPublicKey } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -130,6 +130,41 @@ async function loadEsbuild() {
   return await import(require.resolve('esbuild', { paths: [repoRoot, desktopDir] }));
 }
 
+/**
+ * Derives a deterministic RFC 4122 UUID v4 Debug ID from bundle content so
+ * builds and uploaded sourcemaps share identical Debug IDs.
+ */
+export function deriveDeterministicDebugId(seed) {
+  const bytes = createHash('sha256').update(seed).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Injects TC39/Sentry Debug ID metadata into an emitted bundle and its external `.map` file.
+ * Appended at the end of the bundle so existing line/column sourcemap mappings stay intact.
+ */
+export function injectBundleDebugId(jsPath, mapPath = `${jsPath}.map`) {
+  if (!existsSync(jsPath) || !existsSync(mapPath)) return null;
+  const jsCode = readFileSync(jsPath, 'utf8');
+  const mapObj = JSON.parse(readFileSync(mapPath, 'utf8'));
+  const debugId =
+    typeof mapObj.debugId === 'string' && mapObj.debugId
+      ? mapObj.debugId
+      : deriveDeterministicDebugId(`${path.basename(jsPath)}\0${jsCode}`);
+
+  mapObj.debugId = debugId;
+  writeFileSync(mapPath, JSON.stringify(mapObj), 'utf8');
+
+  if (!jsCode.includes(`//# debugId=${debugId}`)) {
+    const snippet = `;(()=>{try{var e=typeof window!="undefined"?window:typeof global!="undefined"?global:typeof globalThis!="undefined"?globalThis:typeof self!="undefined"?self:{},n=(new e.Error).stack;n&&(e._sentryDebugIds=e._sentryDebugIds||{},e._sentryDebugIds[n]=${JSON.stringify(debugId)},e._sentryDebugIdIdentifier=${JSON.stringify(`sentry-dbid-${debugId}`)})}catch(e){}})();`;
+    writeFileSync(jsPath, `${jsCode}\n${snippet}\n//# debugId=${debugId}\n`, 'utf8');
+  }
+  return debugId;
+}
+
 export async function buildDesktop(options = {}) {
   const esbuild = await loadEsbuild();
   const anchors = resolveBuildTrustAnchors(options.env ?? process.env);
@@ -139,15 +174,18 @@ export async function buildDesktop(options = {}) {
   mkdirSync(distDir, { recursive: true });
   mkdirSync(distBrandDir, { recursive: true });
 
+  const mainOutfile = path.join(distDir, 'main.mjs');
+  const preloadOutfile = path.join(distDir, 'preload.cjs');
+
   await Promise.all([
     esbuild.build({
       entryPoints: [path.join(desktopDir, 'src', 'main.ts')],
-      outfile: path.join(distDir, 'main.mjs'),
+      outfile: mainOutfile,
       bundle: true,
       platform: 'node',
       format: 'esm',
       target: 'node22',
-      sourcemap: true,
+      sourcemap: 'external',
       nodePaths: [desktopNodeModules],
       external: ['electron', 'electron-updater'],
       define: anchors.define,
@@ -157,16 +195,19 @@ export async function buildDesktop(options = {}) {
     }),
     esbuild.build({
       entryPoints: [path.join(desktopDir, 'src', 'preload.ts')],
-      outfile: path.join(distDir, 'preload.cjs'),
+      outfile: preloadOutfile,
       bundle: true,
       platform: 'node',
       format: 'cjs',
       target: 'node22',
-      sourcemap: true,
+      sourcemap: 'external',
       nodePaths: [desktopNodeModules],
       external: ['electron'],
     }),
   ]);
+
+  injectBundleDebugId(mainOutfile);
+  injectBundleDebugId(preloadOutfile);
 
   for (const htmlFile of ['splash.html', 'retry.html', 'env-switcher.html']) {
     const src = path.join(desktopDir, 'src', htmlFile);

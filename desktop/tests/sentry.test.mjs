@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   createDesktopSentryReporter,
+  extractDebugMetaImages,
   parseSentryEnvelopeEndpoints,
   resolveDesktopSentryDsn,
 } from '../src/sentry.ts';
@@ -94,6 +95,12 @@ test('createDesktopSentryReporter sends scrubbed Sentry Envelopes, wires crashRe
     platform: 'darwin',
     arch: 'arm64',
     shellVersion: '0.2.1',
+    getInstallId: () => '5a1d8f3c-7c62-4e0b-8f38-2f6b1c0a9e77',
+    osVersion: '24.3.0',
+    electronVersion: '45.4.1',
+    chromeVersion: '134.0.0.0',
+    nodeVersion: '22.18.0',
+    appStartTime: 1_700_000_000_000,
     redactPaths: ['/Users/ada/Library/Application Support/OpenDesign', '/Users/ada'],
     env: {},
     maxEventsPerMinute: 2,
@@ -115,8 +122,22 @@ test('createDesktopSentryReporter sends scrubbed Sentry Envelopes, wires crashRe
     crashConfig.submitURL,
     'https://sentry.open-design.ai/api/42/minidump/?sentry_key=publickey123',
   );
-  assert.equal(crashConfig.extra.shell_version, '0.2.1');
-  assert.equal(crashConfig.extra.host_kind, 'desktop');
+  assert.equal(crashConfig.extra, undefined);
+  assert.equal(crashConfig.globalExtra['sentry[release]'], 'openmotion-desktop@0.2.1');
+  assert.equal(crashConfig.globalExtra['sentry[environment]'], 'production');
+  assert.equal(crashConfig.globalExtra['sentry[tags][shell_version]'], '0.2.1');
+  assert.equal(crashConfig.globalExtra['sentry[tags][host_kind]'], 'desktop');
+  assert.equal(crashConfig.globalExtra['sentry[user][id]'], '5a1d8f3c-7c62-4e0b-8f38-2f6b1c0a9e77');
+  assert.equal(crashConfig.globalExtra['sentry[contexts][runtime][name]'], 'Electron');
+  assert.equal(crashConfig.globalExtra['sentry[contexts][runtime][version]'], '45.4.1');
+  assert.equal(crashConfig.globalExtra['sentry[contexts][os][name]'], 'macOS');
+  assert.equal(crashConfig.globalExtra['sentry[contexts][os][version]'], '24.3.0');
+
+  reporter.addBreadcrumb({
+    category: 'lifecycle',
+    message: 'Loaded /Users/ada/secret with Bearer sk_live_secret_999',
+    data: { token: 'crumb_secret', step: 'boot' },
+  });
 
   const leakyError = new Error(
     'Failed loading /Users/ada/Library/Application Support/OpenDesign/secrets.json with Bearer sk_live_secret_999',
@@ -142,10 +163,24 @@ test('createDesktopSentryReporter sends scrubbed Sentry Envelopes, wires crashRe
   assert.equal(itemHeader.type, 'event');
   assert.equal(payload.release, 'openmotion-desktop@0.2.1');
   assert.equal(payload.environment, 'production');
+  assert.equal(payload.user.id, '5a1d8f3c-7c62-4e0b-8f38-2f6b1c0a9e77');
+  assert.equal(payload.contexts.os.name, 'macOS');
+  assert.equal(payload.contexts.os.version, '24.3.0');
+  assert.equal(payload.contexts.runtime.name, 'Electron');
+  assert.equal(payload.contexts.runtime.version, '45.4.1');
+  assert.equal(payload.contexts.node.version, '22.18.0');
+  assert.equal(payload.contexts.chrome.version, '134.0.0.0');
+  assert.equal(payload.contexts.device.arch, 'arm64');
+  assert.equal(payload.contexts.app.app_version, '0.2.1');
+  assert.equal(payload.breadcrumbs.length, 1);
+  assert.equal(payload.breadcrumbs[0].category, 'lifecycle');
+  assert.equal(payload.breadcrumbs[0].data.step, 'boot');
+  assert.equal(payload.breadcrumbs[0].data.token, '[redacted]');
   assert.equal(payload.tags.host_kind, 'desktop');
   assert.equal(payload.tags.area, 'updater');
   assert.equal(sentRequests[0].body.includes('sk_live_secret_999'), false);
   assert.equal(sentRequests[0].body.includes('super_secret_token'), false);
+  assert.equal(sentRequests[0].body.includes('crumb_secret'), false);
   assert.equal(sentRequests[0].body.includes('/Users/ada'), false);
 
   // Second event within 1 minute succeeds; third is rate-limited
@@ -331,4 +366,137 @@ test('the outbox drops what ingest rejects, expires old items, stays bounded, an
   } finally {
     cleanup();
   }
+});
+
+test('captureTransaction sends Sentry transaction envelopes with spans, measurements, and outbox retry', async () => {
+  const { reporter, state, queued, cleanup } = makeOutboxReporter({
+    getInstallId: () => '9f1c2e3b-4a5d-6b7c-8d9e-0f1a2b3c4d5e',
+    osVersion: '24.3.0',
+    electronVersion: '45.4.1',
+  });
+  try {
+    const startMs = state.nowMs;
+    const ok = await reporter.captureTransaction({
+      name: 'desktop.startup',
+      op: 'app.launch',
+      startMs,
+      endMs: startMs + 1_450,
+      status: 'ok',
+      tags: { outcome: 'ok' },
+      measurements: {
+        app_cold_start: { value: 1450, unit: 'millisecond' },
+      },
+      spans: [
+        { op: 'electron.ready', description: 'Electron app.whenReady', startMs, endMs: startMs + 220 },
+        { op: 'studio.load', description: 'Studio load', startMs: startMs + 250, endMs: startMs + 1_450 },
+      ],
+    });
+    assert.equal(ok, true);
+    assert.equal(state.bodies.length, 1);
+
+    const [envHeader, itemHeader, payload] = state.bodies[0].trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(envHeader.trace.transaction, 'desktop.startup');
+    assert.equal(itemHeader.type, 'transaction');
+    assert.equal(payload.type, 'transaction');
+    assert.equal(payload.transaction, 'desktop.startup');
+    assert.equal(payload.user.id, '9f1c2e3b-4a5d-6b7c-8d9e-0f1a2b3c4d5e');
+    assert.equal(payload.contexts.trace.op, 'app.launch');
+    assert.equal(payload.contexts.trace.status, 'ok');
+    assert.equal(payload.measurements.app_cold_start.value, 1450);
+    assert.equal(payload.spans.length, 2);
+    assert.equal(payload.spans[0].parent_span_id, payload.contexts.trace.span_id);
+    assert.equal(payload.spans[0].trace_id, payload.contexts.trace.trace_id);
+
+    // Offline transaction queues in outbox and flushes later
+    state.responses = ['offline'];
+    assert.equal(
+      await reporter.captureTransaction({
+        name: 'desktop.updater.check',
+        op: 'updater.check',
+        startMs,
+        endMs: startMs + 300,
+      }),
+      false,
+    );
+    assert.equal(queued().length, 1);
+    state.responses = [200];
+    assert.equal(await reporter.flushOutbox(), 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('captureException normalizes bundled frames to app:///dist/... and attaches debug_meta.images', async () => {
+  const bodies = [];
+  const distDir = '/opt/OpenDesign/resources/app.asar/dist';
+  const debugId = '11111111-2222-4333-8444-555555555555';
+  const reporter = createDesktopSentryReporter({
+    dsn: TEST_DSN,
+    release: 'openmotion-desktop@0.2.1',
+    channel: 'stable',
+    platform: 'darwin',
+    arch: 'arm64',
+    shellVersion: '0.2.1',
+    appDistDir: distDir,
+    redactPaths: [distDir],
+    debugIds: {
+      [`Error\n    at file://${distDir}/main.mjs:999:12`]: debugId,
+    },
+    env: {},
+    fetchImpl: async (_url, init) => {
+      bodies.push(String(init?.body ?? ''));
+      return new Response('{}', { status: 200 });
+    },
+  });
+
+  const err = new Error('boom');
+  err.stack = `Error: boom\n    at bootDesktop (file://${distDir}/main.mjs:420:15)\n    at node:internal/process/task_queues:95:5`;
+  assert.equal(await reporter.captureException(err), true);
+  const payload = JSON.parse(bodies[0].trim().split('\n')[2]);
+  const frames = payload.exception.values[0].stacktrace.frames;
+  const appFrame = frames.find(frame => frame.function === 'bootDesktop');
+  assert.equal(appFrame.filename, 'app:///dist/main.mjs');
+  assert.equal(appFrame.abs_path, 'app:///dist/main.mjs');
+  assert.equal(appFrame.in_app, true);
+  assert.deepEqual(payload.debug_meta, {
+    images: [{ type: 'sourcemap', code_file: 'app:///dist/main.mjs', debug_id: debugId }],
+  });
+  assert.deepEqual(
+    extractDebugMetaImages({ [`Error\n    at ${distDir}/preload.cjs:1:1`]: debugId }, distDir),
+    [{ type: 'sourcemap', code_file: 'app:///dist/preload.cjs', debug_id: debugId }],
+  );
+});
+
+test('breadcrumbs stay bounded and are cleared when sharing is disabled', async () => {
+  const bodies = [];
+  const reporter = createDesktopSentryReporter({
+    dsn: TEST_DSN,
+    release: 'openmotion-desktop@0.2.1',
+    channel: 'test',
+    platform: 'darwin',
+    arch: 'arm64',
+    shellVersion: '0.2.1',
+    maxBreadcrumbs: 3,
+    env: {},
+    fetchImpl: async (_url, init) => {
+      bodies.push(String(init?.body ?? ''));
+      return new Response('{}', { status: 200 });
+    },
+  });
+
+  for (let i = 1; i <= 5; i += 1) {
+    reporter.addBreadcrumb({ category: 'nav', message: `step-${i}` });
+  }
+  await reporter.captureMessage('first', 'error');
+  const firstPayload = JSON.parse(bodies[0].trim().split('\n')[2]);
+  assert.deepEqual(
+    firstPayload.breadcrumbs.map(crumb => crumb.message),
+    ['step-3', 'step-4', 'step-5'],
+  );
+
+  reporter.setEnabled(false);
+  reporter.setEnabled(true);
+  await reporter.captureMessage('second', 'error');
+  const secondPayload = JSON.parse(bodies[1].trim().split('\n')[2]);
+  assert.equal(secondPayload.breadcrumbs, undefined);
 });

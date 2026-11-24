@@ -203,8 +203,23 @@ const telemetry = new DesktopTelemetryCollector({
   allowLocalDevLoopback,
 });
 const appStartupStartedAt = Date.now();
+let appReadyAt: number | null = null;
+let windowCreatedAt: number | null = null;
+let studioLoadStartedAt: number | null = null;
+let domReadyAt: number | null = null;
+let didFinishLoadAt: number | null = null;
+
+function sanitizeUrlForBreadcrumb(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return rawUrl.split('?')[0] ?? rawUrl;
+  }
+}
 
 const desktopRelease = `openmotion-desktop@${app.getVersion()}`;
+let sessionTracker: ReturnType<typeof createSessionTracker>;
 const desktopSentry = createDesktopSentryReporter({
   dsn: resolveDesktopSentryDsn(),
   environment: process.env.SENTRY_ENVIRONMENT,
@@ -213,17 +228,24 @@ const desktopSentry = createDesktopSentryReporter({
   platform,
   arch: process.arch,
   shellVersion: app.getVersion(),
+  appDistDir: distDir,
   redactPaths: [distDir, dataDir, logDir, os.homedir()],
   outboxPath: path.join(dataDir, 'telemetry', 'sentry-outbox.json'),
+  getInstallId: () => sessionTracker?.getInstallId(),
+  osVersion: os.release(),
+  electronVersion: process.versions.electron,
+  chromeVersion: process.versions.chrome,
+  nodeVersion: process.versions.node,
+  appStartTime: appStartupStartedAt,
   // Chromium's network stack follows the system proxy; Node's fetch does not.
   fetchImpl: (input, init) =>
     app.isReady() ? net.fetch(input instanceof URL ? input.toString() : input, init) : fetch(input, init),
   onCapture: level => {
-    if (level === 'error' || level === 'fatal') sessionTracker.noteError();
+    if (level === 'error' || level === 'fatal') sessionTracker?.noteError();
   },
-  onDisabled: () => sessionTracker.forget(),
+  onDisabled: () => sessionTracker?.forget(),
 });
-const sessionTracker = createSessionTracker({
+sessionTracker = createSessionTracker({
   dir: path.join(dataDir, 'telemetry'),
   release: desktopRelease,
   isEnabled: () => desktopSentry.isEnabled(),
@@ -233,6 +255,11 @@ const sessionTracker = createSessionTracker({
 // Honor the persisted sharing preference before Studio loads and syncs it.
 desktopSentry.setEnabled(telemetry.isEnabled());
 desktopSentry.startCrashReporter(crashReporter);
+desktopSentry.addBreadcrumb({
+  category: 'lifecycle',
+  message: 'Desktop shell booted',
+  data: { channel: releaseChannel, isPackaged: app.isPackaged },
+});
 // Report this launch for release health, and deliver what an earlier launch could not
 // send (it may have failed while offline).
 void app.whenReady().then(() => {
@@ -505,6 +532,11 @@ async function startDesktopSignIn(params?: {
 
   const startedAt = Date.now();
   pendingLoginReturnPath = returnPath;
+  desktopSentry.addBreadcrumb({
+    category: 'auth',
+    message: 'Started desktop browser sign-in',
+    data: { switchAccount: Boolean(params?.switchAccount) },
+  });
   try {
     const result = await authHandoff.startLogin({
       switchAccount: params?.switchAccount,
@@ -514,6 +546,7 @@ async function startDesktopSignIn(params?: {
         if (finalState.status !== 'authenticated') {
           pendingLoginReturnPath = undefined;
         }
+        const endedAt = Date.now();
         const outcome =
           finalState.status === 'authenticated'
             ? 'authenticated'
@@ -525,15 +558,47 @@ async function startDesktopSignIn(params?: {
         telemetry.record({
           category: 'auth.handoff',
           outcome,
-          durationMs: Date.now() - startedAt,
+          durationMs: endedAt - startedAt,
+        });
+        desktopSentry.addBreadcrumb({
+          category: 'auth',
+          message: `Desktop sign-in finished: ${outcome}`,
+          level: outcome === 'error' || outcome === 'timeout' ? 'warning' : 'info',
+        });
+        void desktopSentry.captureTransaction({
+          name: 'desktop.auth.handoff',
+          op: 'auth.handoff',
+          startMs: startedAt,
+          endMs: endedAt,
+          status:
+            outcome === 'authenticated'
+              ? 'ok'
+              : outcome === 'cancelled'
+                ? 'cancelled'
+                : outcome === 'timeout'
+                  ? 'deadline_exceeded'
+                  : 'internal_error',
+          tags: { outcome },
+          measurements: {
+            auth_handoff_ms: { value: Math.max(0, endedAt - startedAt), unit: 'millisecond' },
+          },
         });
       })
       .catch(() => {
+        const endedAt = Date.now();
         pendingLoginReturnPath = undefined;
         telemetry.record({
           category: 'auth.handoff',
           outcome: 'error',
-          durationMs: Date.now() - startedAt,
+          durationMs: endedAt - startedAt,
+        });
+        void desktopSentry.captureTransaction({
+          name: 'desktop.auth.handoff',
+          op: 'auth.handoff',
+          startMs: startedAt,
+          endMs: endedAt,
+          status: 'internal_error',
+          tags: { outcome: 'error' },
         });
       });
     // Return only structuredClone-safe plain fields over Electron IPC (never return the completion Promise).
@@ -1001,10 +1066,24 @@ async function installDownloadedUpdate(): Promise<{ ok: boolean; error?: string 
     logger.markSessionEnded('install-update');
     sessionTracker.end();
   });
+  const endedAt = Date.now();
   telemetry.record({
     category: 'updater.install',
     outcome: result.ok ? 'ok' : 'error',
-    durationMs: Date.now() - startedAt,
+    durationMs: endedAt - startedAt,
+  });
+  desktopSentry.addBreadcrumb({
+    category: 'updater',
+    message: result.ok ? 'Install update initiated' : 'Install update failed',
+    level: result.ok ? 'info' : 'warning',
+  });
+  void desktopSentry.captureTransaction({
+    name: 'desktop.updater.install',
+    op: 'updater.install',
+    startMs: startedAt,
+    endMs: endedAt,
+    status: result.ok ? 'ok' : 'internal_error',
+    tags: { outcome: result.ok ? 'ok' : 'error' },
   });
   return result;
 }
@@ -1178,6 +1257,77 @@ const CONNECTIVITY_REFERENCE_URL = `${DEFAULT_SIGNED_CONFIG_BASE_URL}/${
 }.json`;
 let startupOutcomeRecorded = false;
 
+function recordStartupPerformanceTransaction(
+  outcome: 'ok' | 'timeout' | 'network_error' | 'error',
+  finishedAt: number,
+  errorCode?: string,
+): void {
+  const spans: Array<{
+    op: string;
+    description: string;
+    startMs: number;
+    endMs: number;
+    status?: 'ok' | 'deadline_exceeded' | 'internal_error';
+  }> = [];
+  if (appReadyAt !== null) {
+    spans.push({
+      op: 'electron.ready',
+      description: 'Electron app.whenReady',
+      startMs: appStartupStartedAt,
+      endMs: appReadyAt,
+    });
+  }
+  if (appReadyAt !== null && windowCreatedAt !== null) {
+    spans.push({
+      op: 'window.create',
+      description: 'Create main BrowserWindow',
+      startMs: appReadyAt,
+      endMs: windowCreatedAt,
+    });
+  }
+  if (studioLoadStartedAt !== null) {
+    if (domReadyAt !== null) {
+      spans.push({
+        op: 'studio.dom_ready',
+        description: 'Studio DOM ready',
+        startMs: studioLoadStartedAt,
+        endMs: domReadyAt,
+      });
+    }
+    if (didFinishLoadAt !== null) {
+      spans.push({
+        op: 'studio.did_finish_load',
+        description: 'Studio did-finish-load',
+        startMs: domReadyAt ?? studioLoadStartedAt,
+        endMs: didFinishLoadAt,
+      });
+    }
+    spans.push({
+      op: 'studio.load',
+      description: outcome === 'ok' ? 'Studio load to rendererReady' : `Studio load failed (${errorCode ?? outcome})`,
+      startMs: studioLoadStartedAt,
+      endMs: finishedAt,
+      status: outcome === 'ok' ? 'ok' : outcome === 'timeout' ? 'deadline_exceeded' : 'internal_error',
+    });
+  }
+  const durationMs = Math.max(0, finishedAt - appStartupStartedAt);
+  void desktopSentry.captureTransaction({
+    name: 'desktop.startup',
+    op: 'app.launch',
+    startMs: appStartupStartedAt,
+    endMs: finishedAt,
+    status: outcome === 'ok' ? 'ok' : outcome === 'timeout' ? 'deadline_exceeded' : 'internal_error',
+    tags: {
+      outcome,
+      ...(errorCode ? { error_code: errorCode } : {}),
+    },
+    measurements: {
+      app_cold_start: { value: durationMs, unit: 'millisecond' },
+    },
+    spans,
+  });
+}
+
 /**
  * Reports a failed Studio load. The retry page is shown exactly when in-page
  * reporting cannot run, so this is the only signal such a failure produces.
@@ -1185,15 +1335,23 @@ let startupOutcomeRecorded = false;
 function reportLoadFailure(info: { code?: string; detail?: string; incidentId: string }): void {
   const code = info.code ?? 'UNKNOWN';
   const failure = classifyLoadFailure(info.code);
+  const nowMs = Date.now();
   logger.error('main', 'Studio load failed', { code, incidentId: info.incidentId });
+  desktopSentry.addBreadcrumb({
+    category: 'navigation',
+    level: 'error',
+    message: `Studio load failed: ${code}`,
+    data: { incidentId: info.incidentId },
+  });
   if (!startupOutcomeRecorded) {
     startupOutcomeRecorded = true;
     telemetry.record({
       category: 'app.startup',
       outcome: failure.outcome,
-      durationMs: Date.now() - appStartupStartedAt,
+      durationMs: nowMs - appStartupStartedAt,
       errorCode: code,
     });
+    recordStartupPerformanceTransaction(failure.outcome, nowMs, code);
   }
   void (async () => {
     const connectivity =
@@ -1277,6 +1435,14 @@ async function loadStudioIntoMainWindow(targetPath?: string): Promise<void> {
     }
   }
   logger.info('main', 'Loading cloud Studio URL', { url: targetUrl });
+  if (studioLoadStartedAt === null) {
+    studioLoadStartedAt = Date.now();
+  }
+  desktopSentry.addBreadcrumb({
+    category: 'navigation',
+    message: 'Loading Studio URL',
+    data: { url: sanitizeUrlForBreadcrumb(targetUrl) },
+  });
 
   startupLoadWatchdogTimer = setTimeout(() => {
     startupLoadWatchdogTimer = null;
@@ -1403,13 +1569,21 @@ function registerCapabilities(): void {
     openExternalSafe,
     onRendererReady: () => {
       clearStartupLoadWatchdog();
+      const readyAt = Date.now();
       if (!startupOutcomeRecorded) {
         startupOutcomeRecorded = true;
+        const durationMs = readyAt - appStartupStartedAt;
         telemetry.record({
           category: "app.startup",
           outcome: "ok",
-          durationMs: Date.now() - appStartupStartedAt,
+          durationMs,
         });
+        desktopSentry.addBreadcrumb({
+          category: 'lifecycle',
+          message: 'Renderer ready',
+          data: { startupDurationMs: durationMs },
+        });
+        recordStartupPerformanceTransaction('ok', readyAt);
       }
       // Studio is up, so the network path works: deliver anything still queued.
       void desktopSentry.flushOutbox();
@@ -1691,8 +1865,16 @@ function createMainWindow(): BrowserWindow {
     maybeResetAuthFallback(url);
     void syncWindowChromeCss();
     refreshDesktopMenus();
+    desktopSentry.addBreadcrumb({
+      category: 'navigation',
+      message: 'Window navigated',
+      data: { url: sanitizeUrlForBreadcrumb(url) },
+    });
   });
   win.webContents.on('dom-ready', () => {
+    if (domReadyAt === null && !showingRetryPage) {
+      domReadyAt = Date.now();
+    }
     clearStartupLoadWatchdog();
     void syncWindowChromeCss();
   });
@@ -1700,6 +1882,9 @@ function createMainWindow(): BrowserWindow {
     adjustMainWindowZoom(zoomDirection === 'in' ? 'in' : 'out');
   });
   win.webContents.on('did-finish-load', () => {
+    if (didFinishLoadAt === null && !showingRetryPage) {
+      didFinishLoadAt = Date.now();
+    }
     clearStartupLoadWatchdog();
     refreshDesktopMenus();
     void syncEnvironmentBadge(win);
@@ -1784,6 +1969,11 @@ function createMainWindow(): BrowserWindow {
   });
   win.on('unresponsive', () => {
     logger.warn('renderer', 'Main window became unresponsive');
+    desktopSentry.addBreadcrumb({
+      category: 'window',
+      level: 'warning',
+      message: 'Main window became unresponsive',
+    });
     if (unresponsiveTimer || unresponsiveDialogOpen || shuttingDown) return;
     unresponsiveTimer = setTimeout(() => {
       unresponsiveTimer = null;
@@ -1815,6 +2005,10 @@ function createMainWindow(): BrowserWindow {
   });
   win.on('responsive', () => {
     clearUnresponsiveTimer();
+    desktopSentry.addBreadcrumb({
+      category: 'window',
+      message: 'Main window became responsive again',
+    });
   });
   win.on('will-resize', () => {
     markLiveResizing();
@@ -1882,6 +2076,13 @@ function createMainWindow(): BrowserWindow {
     }
   });
 
+  if (windowCreatedAt === null) {
+    windowCreatedAt = Date.now();
+  }
+  desktopSentry.addBreadcrumb({
+    category: 'lifecycle',
+    message: 'Main window created',
+  });
   return win;
 }
 
@@ -2206,6 +2407,12 @@ nativeTheme.on('updated', () => {
 });
 
 void app.whenReady().then(async () => {
+  appReadyAt = Date.now();
+  desktopSentry.addBreadcrumb({
+    category: 'lifecycle',
+    message: 'Electron app ready',
+    data: { readyMs: appReadyAt - appStartupStartedAt },
+  });
   preconnectStudioOrigin();
   registerDesktopProtocolClient(app);
   registerCapabilities();

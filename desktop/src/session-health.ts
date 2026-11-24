@@ -31,6 +31,8 @@ type SessionRecord = {
 export type SessionTracker = {
   /** Reports how the previous launch ended, then opens this launch's session. */
   start: () => void;
+  /** Returns the random per-install UUID while sharing is enabled, or undefined when off. */
+  getInstallId: () => string | undefined;
   noteError: () => void;
   noteCrash: () => void;
   /** Marks a normal quit. Synchronous: the process is about to exit. */
@@ -75,6 +77,7 @@ export function createSessionTracker(options: {
   const recordPath = path.join(options.dir, 'session.json');
   const installIdPath = path.join(options.dir, 'install-id');
   let current: SessionRecord | null = null;
+  let cachedInstallId: string | undefined;
 
   const readRecord = (): SessionRecord | null => {
     try {
@@ -113,19 +116,30 @@ export function createSessionTracker(options: {
   };
 
   const installId = (): string => {
+    if (cachedInstallId) return cachedInstallId;
     try {
       const existing = readFileSync(installIdPath, 'utf8').trim();
-      if (/^[0-9a-f-]{36}$/.test(existing)) return existing;
+      if (/^[0-9a-f-]{36}$/.test(existing)) {
+        cachedInstallId = existing;
+        return existing;
+      }
     } catch {
       // First launch, or the user re-enabled sharing.
     }
     const created = randomUUID();
     writeFile(installIdPath, created);
+    cachedInstallId = created;
     return created;
+  };
+
+  const getInstallId = (): string | undefined => {
+    if (!options.isEnabled()) return undefined;
+    return installId();
   };
 
   const forget = (): void => {
     current = null;
+    cachedInstallId = undefined;
     for (const filePath of [recordPath, installIdPath]) {
       try {
         rmSync(filePath, { force: true });
@@ -136,6 +150,7 @@ export function createSessionTracker(options: {
   };
 
   return {
+    getInstallId,
     start() {
       if (!options.isEnabled()) {
         forget();

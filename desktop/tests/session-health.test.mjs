@@ -26,9 +26,12 @@ test('a launch opens a session and the next launch reports how it ended', () => 
   const { dir, state, launch, cleanup } = makeLaunches();
   try {
     const first = launch();
+    const idBeforeStart = first.getInstallId();
+    assert.match(idBeforeStart, /^[0-9a-f-]{36}$/);
     first.start();
     assert.equal(state.sent.length, 1);
     const opened = state.sent[0];
+    assert.equal(opened.did, idBeforeStart);
     assert.deepEqual(
       { init: opened.init, status: opened.status, errors: opened.errors, release: opened.release },
       { init: true, status: 'ok', errors: 0, release: 'openmotion-desktop@1.0.0' },
@@ -117,6 +120,7 @@ test('nothing is reported or kept while sharing is off, and turning it off erase
   try {
     state.enabled = false;
     const silent = launch();
+    assert.equal(silent.getInstallId(), undefined);
     silent.start();
     silent.noteError();
     silent.end();

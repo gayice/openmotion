@@ -486,6 +486,28 @@ jobs:
             ls -lh desktop/release/*.exe 2>/dev/null || true
           } >> "${GITHUB_STEP_SUMMARY}"
 
+      - name: Upload desktop sourcemaps to Sentry
+        if: needs.prepare.outputs.publish == 'true' && matrix.platform == 'darwin' && matrix.arch == 'arm64'
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_DESKTOP_PROJECT: ${{ vars.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_ORG:-}" ] || [ -z "${SENTRY_DESKTOP_PROJECT:-}" ]; then
+            echo "::notice::Skipping Sentry sourcemap upload (set SENTRY_AUTH_TOKEN secret plus SENTRY_ORG and SENTRY_DESKTOP_PROJECT vars to enable)."
+            exit 0
+          fi
+          npx --yes @sentry/cli@^2 sourcemaps upload \
+            --org "${SENTRY_ORG}" \
+            --project "${SENTRY_DESKTOP_PROJECT}" \
+            --release "openmotion-desktop@${RELEASE_VERSION}" \
+            --url-prefix "app:///dist" \
+            desktop/dist
+
       - name: Upload installers concurrently to release bucket (releases.open-design.ai)
         if: needs.prepare.outputs.publish == 'true' && (github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/desktop-test' && needs.prepare.outputs.channel == 'test'))
         shell: bash

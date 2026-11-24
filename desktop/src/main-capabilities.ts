@@ -145,22 +145,54 @@ export function registerDesktopCapabilities(deps: RegisterDesktopCapabilitiesDep
       checkForUpdates: async () => {
         const startedAt = Date.now();
         const state = await deps.updater.checkForUpdates();
+        const endedAt = Date.now();
+        const outcome = state.status === 'error' ? 'error' : 'ok';
         deps.telemetry.record({
           category: 'updater.check',
-          outcome: state.status === 'error' ? 'error' : 'ok',
-          durationMs: Date.now() - startedAt,
+          outcome,
+          durationMs: endedAt - startedAt,
           ...(state.availableVersion ? { targetVersion: state.availableVersion } : {}),
+        });
+        deps.desktopSentry.addBreadcrumb({
+          category: 'updater',
+          message: `Update check: ${state.status}`,
+          level: outcome === 'error' ? 'warning' : 'info',
+          ...(state.availableVersion ? { data: { availableVersion: state.availableVersion } } : {}),
+        });
+        void deps.desktopSentry.captureTransaction({
+          name: 'desktop.updater.check',
+          op: 'updater.check',
+          startMs: startedAt,
+          endMs: endedAt,
+          status: outcome === 'ok' ? 'ok' : 'internal_error',
+          tags: { outcome, status: state.status },
         });
         return state;
       },
       downloadUpdate: async () => {
         const startedAt = Date.now();
         const state = await deps.updater.downloadUpdate();
+        const endedAt = Date.now();
+        const outcome = state.status === 'error' ? 'error' : 'ok';
         deps.telemetry.record({
           category: 'updater.download',
-          outcome: state.status === 'error' ? 'error' : 'ok',
-          durationMs: Date.now() - startedAt,
+          outcome,
+          durationMs: endedAt - startedAt,
           ...(state.availableVersion ? { targetVersion: state.availableVersion } : {}),
+        });
+        deps.desktopSentry.addBreadcrumb({
+          category: 'updater',
+          message: `Update download: ${state.status}`,
+          level: outcome === 'error' ? 'warning' : 'info',
+          ...(state.availableVersion ? { data: { availableVersion: state.availableVersion } } : {}),
+        });
+        void deps.desktopSentry.captureTransaction({
+          name: 'desktop.updater.download',
+          op: 'updater.download',
+          startMs: startedAt,
+          endMs: endedAt,
+          status: outcome === 'ok' ? 'ok' : 'internal_error',
+          tags: { outcome, status: state.status },
         });
         return state;
       },
@@ -200,14 +232,29 @@ export function registerDesktopCapabilities(deps: RegisterDesktopCapabilitiesDep
         handler: async () => {
           const startedAt = Date.now();
           const result = await deps.signedConfig.fetchAndApply();
+          const endedAt = Date.now();
+          const outcome = result.applied ? (result.unchanged ? 'unchanged' : 'applied') : 'rejected';
           deps.telemetry.record({
             category: 'signed_config.refresh',
-            outcome: result.applied ? (result.unchanged ? 'unchanged' : 'applied') : 'rejected',
-            durationMs: Date.now() - startedAt,
+            outcome,
+            durationMs: endedAt - startedAt,
             ...(result.applied && typeof result.sequence === 'number'
               ? { sequence: result.sequence }
               : {}),
             ...(!result.applied && result.code ? { errorCode: result.code } : {}),
+          });
+          deps.desktopSentry.addBreadcrumb({
+            category: 'config',
+            message: `Signed config refresh: ${outcome}`,
+            level: outcome === 'rejected' ? 'warning' : 'info',
+          });
+          void deps.desktopSentry.captureTransaction({
+            name: 'desktop.signed_config.refresh',
+            op: 'signed_config.refresh',
+            startMs: startedAt,
+            endMs: endedAt,
+            status: outcome === 'rejected' ? 'internal_error' : 'ok',
+            tags: { outcome },
           });
           if (result.applied && !result.unchanged) {
             registry.emit(HOST_CAPABILITIES.SIGNED_CONFIG, 'updated', deps.signedConfig.getStatus());

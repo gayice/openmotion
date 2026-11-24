@@ -9,6 +9,7 @@ directories:
 
 files:
   - dist/**/*
+  - "!dist/**/*.map"
   - package.json
 
 asar: true
