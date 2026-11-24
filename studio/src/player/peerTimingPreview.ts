@@ -5,7 +5,7 @@ import { createPreviewAdapter } from "./lib/previewAdapter";
 import { capturePresentedTimelineChanges } from "./lib/isolatedTimelineEdits";
 import { setPreviewMediaMuted } from "./lib/timelineIframeHelpers";
 import { usePlayerStore } from "./store/playerStore";
-import { MAX_PEER_PREVIEW_SOURCE_LENGTH, PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
+import { MAX_PREVIEW_SCENE_FILES, MAX_PEER_PREVIEW_SOURCE_LENGTH, PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
 
 type FileSnapshot = { content: string; version: string };
 
@@ -20,16 +20,56 @@ export function rememberPeerTimingDocument(frame: HTMLIFrameElement, token: stri
   else documents.delete(frame);
 }
 
+type SceneRequest = { path: string; version: string; isCurrent: () => boolean };
+type PendingScenes = { requests: Map<string, SceneRequest>; generation: number; result: Promise<boolean> };
+const pendingScenes = new WeakMap<object, PendingScenes>();
+
+/** Keep the receipts for this document together while a previous compact read is in flight. */
 export async function tryRefreshPeerScene(frame: HTMLIFrameElement, path: string, version: string, isCurrent: () => boolean) {
   const doc = documents.get(frame);
   if (!doc?.canRefreshScene || !isCurrent()) return false;
+  const request = { path, version, isCurrent };
+  const existing = pendingScenes.get(doc);
+  if (existing) {
+    if (existing.requests.get(path)?.version !== version) existing.generation++;
+    existing.requests.set(path, request);
+    return await existing.result && isCurrent();
+  }
   const adapter = createPreviewAdapter({ iframe: frame });
   if (adapter.token !== doc.token) return false;
-  const timeout = 5000;
-  const applied = await adapter.request<boolean>("refresh-peer-scene", {
-    path, fileVersion: version, documentId: doc.id, expiresAt: Date.now() + timeout,
-  }, timeout).catch(() => false);
-  return applied === true && documents.get(frame) === doc && isCurrent();
+  const expiresAt = Date.now() + 5000;
+  const pending: PendingScenes = { requests: new Map([[path, request]]), generation: 0, result: Promise.resolve(false) };
+  pendingScenes.set(doc, pending);
+  pending.result = Promise.resolve().then(async () => {
+    try {
+      while (documents.get(frame) === doc && Date.now() < expiresAt) {
+        const generation = pending.generation;
+        const requests = [...pending.requests.values()];
+        if (requests.length > MAX_PREVIEW_SCENE_FILES || !requests.every(item => item.isCurrent())) return false;
+        const first = requests[0]!;
+        // An older bridge accepts the single receipt and rejects a multi-file
+        // request because it has no top-level path.
+        const receipts = requests.length === 1 ? { path: first.path, fileVersion: first.version } : {
+          fileVersions: Object.fromEntries(requests.map(item => [item.path, item.version])),
+        };
+        const applied = await adapter.request<boolean>("refresh-peer-scene", {
+          ...receipts, documentId: doc.id, expiresAt,
+        }, Math.max(1, expiresAt - Date.now())).catch(() => false);
+        // A second receipt arrived during the read. Let the combined attempt
+        // finish before either caller can fall back to rebuilding the document.
+        if (generation === pending.generation) return applied === true && documents.get(frame) === doc;
+        if (applied) {
+          for (const item of requests) {
+            if (pending.requests.get(item.path)?.version === item.version) pending.requests.delete(item.path);
+          }
+        }
+      }
+      return false;
+    } finally {
+      pendingScenes.delete(doc);
+    }
+  });
+  return await pending.result && isCurrent();
 }
 
 /** A scripted or older document can start rebuilding in parallel with the source read. */

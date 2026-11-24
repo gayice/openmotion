@@ -23,8 +23,14 @@ function createScene(declarative = false, position = false) {
     "innerWidth", "innerHeight", "picked", "timingDocumentId", "compositionPath", "settings", "notifyInspectorSourceReady", "inspectorElement",
     PREVIEW_SOURCE_IDENTITY + PREVIEW_CANVAS_DRAG + PREVIEW_SCENE_UPDATE + `
     function editInlineText(message) { return message.phase === 'pick' ? sourceVersions['one.html'] : null; }
-    return {dispatch:sceneCanvasDrag, inline:sceneInlineText, swap(path, version, ready) {
-      applyingScene = {path, version, ready:ready.then(() => { confirmCanvasVersion(path,version); applyingScene = null; return true; })};
+    return {dispatch:sceneCanvasDrag, inline:sceneInlineText, swap(path, version, ready, extra = {}) {
+      const entries = Object.entries({...extra, [path]: version});
+      const settled = ready.then(() => {
+        for (const [file, next] of entries) confirmCanvasVersion(file,next);
+        applyingScenes.clear();
+        return true;
+      });
+      for (const [file, next] of entries) applyingScenes.set(file, {path:file, version:next, ready:settled});
     }};`)(
     document, (el: HTMLElement) => ({ position: el.style.position || "static", visibility: el.style.visibility, left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: "none", display: "block" }),
     HTMLElement, { "one.html": originalHash, "two.html": originalHash },
@@ -60,7 +66,7 @@ it.each(["text", "position", "deleted", "cancelled"])("settles a drag during a s
   one.style.left = "80px";
   const version = "b".repeat(64);
   const {promise, resolve} = Promise.withResolvers<void>();
-  swap("one.html", version, promise);
+  swap("one.html", version, promise, {"two.html": "c".repeat(64)});
   expect(gesture("start", "active")).toBeTruthy();
   gesture("move", "active");
   expect(one.style.left).toBe("105px");
@@ -86,7 +92,7 @@ it.each(["same layer", "other layer", "cancelled"])("opens the inline caret afte
   const {one, two, swap, inline, makeElement} = createScene();
   const version = "b".repeat(64);
   const {promise, resolve} = Promise.withResolvers<void>();
-  swap("one.html", version, promise);
+  swap("one.html", version, promise, {"two.html": "c".repeat(64)});
   const message = {phase:"pick", editId:"text", x:0, y:0};
   const result = inline(message);
   if (state === "cancelled") inline({...message, phase:"cancel"});

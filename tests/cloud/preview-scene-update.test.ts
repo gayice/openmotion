@@ -23,13 +23,13 @@ it('keeps ordered scene scripts, styles and font declarations while omitting the
   const compile = (scenes: string) => `<html><head><meta name="hf-scene-parts" content="{}"><script data-openmotion-preview="{}" src="/bridge.js"></script>
     <style data-hf-scene-fonts>@font-face{font-family:Heading}</style><style data-hf-scene="intro">h1{color:red}</style>
     <script>unrelated()</script></head><body>${scenes}<script data-hf-scene="intro">after()</script></body></html>`;
-  const html = previewSceneFragment(compile(host), file)!;
+  const html = previewSceneFragment(compile(host), [file])!;
   const fragment = parseHTMLContent(html);
   assert.equal(fragment.querySelector('[data-hf-scene-fonts]')?.textContent, '@font-face{font-family:Heading}');
   assert.equal(fragment.querySelector('style[data-hf-scene]')?.textContent, 'h1{color:red}');
   assert.deepEqual(Array.from(fragment.querySelectorAll('script[data-hf-scene]'), el => el.textContent), ['inside()', 'after()']);
   assert.ok(!html.includes('unrelated()') && !html.includes('/bridge.js'));
-  assert.equal(previewSceneFragment(compile(host + host), file), null);
+  assert.equal(previewSceneFragment(compile(host + host), [file]), null);
 });
 
 function fixture() {
@@ -45,27 +45,50 @@ function fixture() {
   const counts = { reads: 0, swaps: 0, confirms: 0 };
   const request = { documentId: 'frame-1', path: file, fileVersion: version, expiresAt: Date.now() + 3000 };
   let duringRead = () => {};
+  const requestedFiles: string[][] = [];
+  const confirmed: Record<string, string> = {};
   const refresh = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_SCENE_UPDATE + '\nrefreshPeerScene;', {
     settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: { ...oldVersions }, projectId: 'p',
     document, location: {href: 'https://preview.example/current?pt=test'}, URL, AbortSignal,
     drag: null, pendingDrags: new Map(), inlineText: null,
     DOMParser: class { parseFromString(html: string) { return parseHTMLContent(html); } },
     fetch: async (url: string) => {
-      assert.equal(url, 'https://preview.example/current?pt=test&sceneFile=compositions%2Fintro.html');
+      const target = new URL(url);
+      assert.equal(target.searchParams.get('pt'), 'test');
+      requestedFiles.push(target.searchParams.getAll('sceneFile'));
       counts.reads++;
       duringRead();
       return new Response(templ());
     },
     window: { __hfSwapScenes: async (html: string) => { assert.equal(html, templ()); counts.swaps++; } },
-    confirmCanvasVersion: (path: string, value: string) => { assert.equal(path, file); assert.equal(value, after); counts.confirms++; },
+    confirmCanvasVersion: (path: string, value: string) => { confirmed[path] = value; counts.confirms++; },
   });
-  return { document, counts, request, fresh, nextParts, run: () => refresh(request), onRead: (fn: () => void) => {duringRead = fn;} };
+  return { document, counts, request, fresh, nextParts, requestedFiles, confirmed,
+    run: (fileVersions?: Record<string, string>) => refresh(fileVersions ? {...request, fileVersions} : request), onRead: (fn: () => void) => {duringRead = fn;} };
 }
 
 it('updates the parked template through the runtime only after validating the fresh file and all other scenes', async () => {
   const f = fixture();
   assert.equal(await f.run(), true);
   assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 1});
+});
+
+it('requires every changed scene to have a matching receipt before the one runtime swap', async () => {
+  for (const valid of [true, false]) {
+    const f = fixture();
+    const host = f.document.createElement('section');
+    host.setAttribute('data-composition-file', other);
+    host.setAttribute('data-hf-scene', 'outro');
+    f.document.body.append(host);
+    const second = digest('fresh outro');
+    f.fresh.sourceVersions[other] = second;
+    f.nextParts.scenes.outro = 'new outro';
+    const versions = { [file]: version, [other]: valid ? `"sha256:${second}"` : '"stale"' };
+    assert.equal(await f.run(versions), valid);
+    assert.deepEqual(f.requestedFiles, [[file, other]]);
+    assert.deepEqual(f.counts, {reads: 1, swaps: valid ? 1 : 0, confirms: valid ? 2 : 0});
+    assert.deepEqual(f.confirmed, valid ? {[file]: after, [other]: second} : {});
+  }
 });
 
 it('uses the runtime to update both a mounted scene and its next mount', async () => {

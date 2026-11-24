@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
-import { diffPreviewChanges, diffScriptedPreviewStyles, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
+import { diffPreviewChanges, diffScriptedPreviewStyles, rememberPeerTimingDocument, tryApplyPeerChanges, tryRefreshPeerScene } from "./peerTimingPreview";
 
 const source = '<!doctype html><main data-composition-id="root" data-duration="15"><audio id="a" data-start="2" data-duration="3"></audio><script>window.run(1)</script></main>';
 
@@ -152,4 +152,43 @@ it("keeps an unverified font change visible while the certified project's script
   }, () => true, "keep-visible");
   expect(result).toBe(false);
   expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "peer-presentation", temporary: true }), "https://preview.test");
+});
+
+it("waits for the latest distinct receipts before reporting success or rebuilding the document", async () => {
+  const frame = document.createElement("iframe");
+  frame.src = "https://preview.test/api/projects/p/preview?pt=active";
+  const postMessage = vi.fn();
+  Object.defineProperty(frame, "contentWindow", { value: { postMessage } });
+  rememberPeerTimingDocument(frame, "active", undefined, "document", {}, true);
+  const reply = (index: number, result: boolean) => {
+    const { requestId } = postMessage.mock.calls[index]![0];
+    window.dispatchEvent(new MessageEvent("message", { source: frame.contentWindow, origin: "https://preview.test",
+      data: { source: "openmotion-preview-bridge", version: 1, type: "response", token: "active", projectId: "p", requestId, result } }));
+  };
+  const first = tryRefreshPeerScene(frame, "intro.html", "one", () => true);
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+  const second = tryRefreshPeerScene(frame, "outro.html", "two", () => true);
+  const revised = tryRefreshPeerScene(frame, "intro.html", "three", () => true);
+  reply(0, false);
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
+  const combined = postMessage.mock.calls[1]![0];
+  expect(combined.path).toBeUndefined();
+  expect(combined.fileVersions).toEqual({ "intro.html": "three", "outro.html": "two" });
+  reply(1, true);
+  expect(await Promise.all([first, second, revised])).toEqual([true, true, true]);
+});
+
+it("drops a pending scene acknowledgment when a different document takes over the frame", async () => {
+  const frame = document.createElement("iframe");
+  frame.src = "https://preview.test/api/projects/p/preview?pt=active";
+  const postMessage = vi.fn();
+  Object.defineProperty(frame, "contentWindow", { value: { postMessage } });
+  rememberPeerTimingDocument(frame, "active", undefined, "original", {}, true);
+  const request = tryRefreshPeerScene(frame, "intro.html", "one", () => true);
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+  rememberPeerTimingDocument(frame, "active", undefined, "replacement", {}, true);
+  window.dispatchEvent(new MessageEvent("message", { source: frame.contentWindow, origin: "https://preview.test",
+    data: { source: "openmotion-preview-bridge", version: 1, type: "response", token: "active", projectId: "p",
+      requestId: postMessage.mock.calls[0]![0].requestId, result: true } }));
+  expect(await request).toBe(false);
 });

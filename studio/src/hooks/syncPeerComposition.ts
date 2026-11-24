@@ -14,18 +14,20 @@ import { confirmedSource } from "../utils/confirmedTextSources";
 export function syncPeerComposition(
   projectId: string, path: string | null, paths: readonly string[] | null,
   read: RemoteFileRead, frameRef: RefObject<HTMLIFrameElement | null>,
-  previous: KnownCompositionSource | null, changedVersion?: string,
+  previous: KnownCompositionSource | null, versions?: Readonly<Record<string, string | null>> | null,
 ): Promise<boolean> | undefined {
   const frame = frameRef.current;
-  const changed = paths?.length === 1 ? paths[0] : undefined;
   const mounted = syncMountedComposition(projectId, path, paths, read, frameRef, previous);
-  if (!frame || path !== "index.html" || !changed || changed === path || !changedVersion || !/\.html?$/i.test(changed)) return mounted;
-  const revision = previewSourceRevision();
-  const current = () => frameRef.current === frame && revision === previewSourceRevision() &&
-    !isPreviewChanging() && !isStudioEditSaving() && usePlayerStore.getState().timelineProjectId === projectId;
+  if (!frame || path !== "index.html" || !paths?.length || !versions ||
+      !paths.every(file => file !== path && /\.html?$/i.test(file) && versions[file])) return mounted;
+  // The bridge checks the file versions, whole-film fingerprint and unchanged
+  // scenes. An edit to another child can join the same scoped update.
+  const current = () => frameRef.current === frame && !isPreviewChanging() &&
+    !isStudioEditSaving() && usePlayerStore.getState().timelineProjectId === projectId;
   return Promise.resolve(mounted).then(async handled => {
     if (handled) return true;
-    if (!await tryRefreshPeerScene(frame, changed, changedVersion, current)) return false;
+    const applied = await Promise.all(paths.map(file => tryRefreshPeerScene(frame, file, versions[file]!, current)));
+    if (!applied.every(Boolean)) return false;
     announcePreviewScenesSwapped(frame);
     return true;
   });

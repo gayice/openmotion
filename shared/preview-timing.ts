@@ -1,3 +1,4 @@
+export const MAX_PREVIEW_SCENE_FILES = 16;
 export const MAX_PEER_PREVIEW_SOURCE_LENGTH = 128 * 1024;
 export type PreviewLiveEdits = { position?: true; mediaTiming?: true };
 export const PREVIEW_ATTRIBUTES = [

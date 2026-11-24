@@ -1858,6 +1858,13 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
       etags.add(tag);
       assert.equal((await app.request(sceneUrl(file), {headers: {'If-None-Match': tag}})).status, 304);
     }
+    const both = await app.request(sceneUrl(paths[0]!) + '&sceneFile=' + encodeURIComponent(paths[1]!));
+    assert.equal(both.status, 200);
+    assert.ok(!etags.has(both.headers.get('etag')));
+    const pair = parseHTMLContent(await both.text());
+    assert.deepEqual(Array.from(pair.querySelectorAll('[data-composition-file]'), el => el.getAttribute('data-composition-file')), paths);
+    assert.equal(manifest(pair), manifest(doc));
+    assert.equal((await app.request(sceneUrl(paths[0]!) + '&sceneFile=absent.html')).status, 404);
     base = 'https://preview.example/grant-two/';
     const renewed = await app.request(sceneUrl(paths[0]!));
     const html = await renewed.text();

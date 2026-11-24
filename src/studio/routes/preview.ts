@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { MAX_PREVIEW_SCENE_FILES } from '../../../shared/preview-timing.ts';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { Readable } from 'node:stream';
@@ -279,9 +280,10 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     const projectId = c.req.param('id')!;
     const project = await deps.workspace.getProject(auth, projectId, { allowTrashed: true });
     const capture = ['1', 'true'].includes(c.req.query('capture') ?? '');
-    const sceneFile = c.req.query('sceneFile');
-    if (sceneFile !== undefined && (compPath !== undefined || capture || !/\.html?$/i.test(sceneFile) ||
-        normalizeSafeProjectPath(sceneFile) !== sceneFile)) {
+    const sceneFiles = [...new Set(c.req.queries('sceneFile') ?? [])].sort();
+    const sceneKey = sceneFiles.length ? JSON.stringify(sceneFiles) : undefined;
+    if (sceneKey && (compPath !== undefined || capture || sceneFiles.length > MAX_PREVIEW_SCENE_FILES ||
+        sceneFiles.some(file => !/\.html?$/i.test(file) || normalizeSafeProjectPath(file) !== file))) {
       return c.json({ error: 'Expected a scene file from the master preview' }, 400);
     }
     const variables = parseVariablesQuery(c.req.query('variables'));
@@ -293,11 +295,11 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
       auth.workspaceId, projectId, compPath, origin, capture, variables, origin ? PREVIEW_BRIDGE_VERSION : null,
     ])).digest('hex');
     const tag = (revision: string) => previewEtag(documentSignature(revision, assetBase), {
-      gsapBaseUrl, rawVariables: sceneFile ? JSON.stringify([variant, sceneFile]) : variant, capture, compPath,
+      gsapBaseUrl, rawVariables: sceneKey ? variant + sceneKey : variant, capture, compPath,
     });
     const validator = c.req.header('if-none-match');
     const expectedTag = tag(project.revision);
-    if (validator === expectedTag && await deps.files.hasFile(auth, projectId, sceneFile ?? compPath ?? 'index.html')) {
+    if (validator === expectedTag && await deps.files.hasFile(auth, projectId, compPath ?? 'index.html')) {
       c.header('Cache-Control', 'private, no-cache');
       c.header('Vary', 'Cookie, Authorization');
       c.header('ETag', expectedTag);
@@ -334,18 +336,18 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
           ? { error: 'Entry composition index.html not found' }
           : { error: 'Sub-composition not found', path: compPath }, 404);
       }
-      const result = sceneFile ? await cache.get(variant + doc.revision + ':' + sceneFile, doc.revision, async () => {
-        const html = previewSceneFragment(doc.html, sceneFile);
+      const result = sceneKey ? await cache.get(variant + doc.revision + ':' + sceneKey, doc.revision, async () => {
+        const html = previewSceneFragment(doc.html, sceneFiles);
         return html === null ? null : { ...doc, html };
       }) : doc;
       if (!result) {
         c.header('Cache-Control', 'no-store');
-        return c.json({ error: 'Scene is missing or cannot be isolated', path: sceneFile }, 404);
+        return c.json({ error: 'Scene is missing or cannot be isolated', paths: sceneFiles }, 404);
       }
       c.header('Cache-Control', 'private, no-cache');
       c.header('Vary', 'Cookie, Authorization');
       c.header('ETag', tag(doc.revision));
-      c.header('Content-Type', sceneFile ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8');
+      c.header('Content-Type', sceneKey ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8');
       return c.body(assetBase ? result.html.replaceAll(result.templateBase, () => assetBase) : result.html, 200);
     } catch (error) {
       if (error instanceof PreviewBuildBusy) {
